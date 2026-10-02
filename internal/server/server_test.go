@@ -776,11 +776,22 @@ func TestSessionEndForgetsToken(t *testing.T) {
 }
 
 func TestSessionsSurviveRestart(t *testing.T) {
-	h := newHarness(t, core.Spec{Limits: map[core.Class]int{"db": 1}}, core.Spec{})
+	h := newHarness(t, core.Spec{Limits: map[core.Class]int{"db": 1}},
+		core.Spec{Quotas: map[core.Resource]int64{"http": 100}})
 	kept, closed := h.open(keyA, time.Minute), h.open(keyA, time.Minute)
-	lease, err := h.client.Acquire(h.as(kept), &pb.AcquireRequest{NodeId: uint64(h.a), Class: "db"})
+	acquire := &pb.AcquireRequest{RequestId: "hold", NodeId: uint64(h.a), Class: "db"}
+	lease, err := h.client.Acquire(h.as(kept), acquire)
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
+	}
+	create := &pb.CreateNodeRequest{RequestId: "create", ParentId: uint64(h.a)}
+	node, err := h.client.CreateNode(h.as(kept), create)
+	if err != nil {
+		t.Fatalf("CreateNode: %v", err)
+	}
+	charge := &pb.ConsumeRequest{RequestId: "charge", NodeId: uint64(h.a), Resource: "http", Amount: 5}
+	if _, err := h.client.Consume(h.as(kept), charge); err != nil {
+		t.Fatalf("Consume: %v", err)
 	}
 	if _, err := h.client.CloseSession(h.as(closed), &pb.CloseSessionRequest{}); err != nil {
 		t.Fatalf("CloseSession: %v", err)
@@ -797,6 +808,19 @@ func TestSessionsSurviveRestart(t *testing.T) {
 	// The worker carries on with the token and the lease it had before.
 	if _, err := h.client.Heartbeat(h.as(kept), &pb.HeartbeatRequest{}); err != nil {
 		t.Errorf("Heartbeat with a token from before the restart: %v", err)
+	}
+	// A request whose reply was lost in the restart is answered, not carried out a second time.
+	if _, err := h.client.Consume(h.as(kept), charge); err != nil {
+		t.Errorf("repeated Consume: %v", err)
+	}
+	if got := h.used(h.a, "http"); got != 5 {
+		t.Errorf("used = %d after a repeated charge, want 5", got)
+	}
+	if again, err := h.client.CreateNode(h.as(kept), create); err != nil || again.GetNodeId() != node.GetNodeId() {
+		t.Errorf("repeated CreateNode = %v, %v, want node %d", again, err, node.GetNodeId())
+	}
+	if again, err := h.client.Acquire(h.as(kept), acquire); err != nil || again.GetLeaseId() != lease.GetLeaseId() {
+		t.Errorf("repeated Acquire = %v, %v, want lease %d", again, err, lease.GetLeaseId())
 	}
 	if _, err := h.client.Release(h.as(kept), &pb.ReleaseRequest{LeaseId: lease.GetLeaseId()}); err != nil {
 		t.Errorf("Release of a lease from before the restart: %v", err)

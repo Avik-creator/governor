@@ -109,7 +109,9 @@ func (s *Server) CreateNode(ctx context.Context, req *pb.CreateNodeRequest) (*pb
 		return nil, err
 	}
 	return once(ctx, s, req.GetRequestId(), req, func() (*pb.CreateNodeResponse, error) {
-		id, seq, err := s.engine.CreateNode(sessionFrom(ctx), core.NodeID(req.GetParentId()), spec)
+		// The engine records the request id too, so a retry after a restart finds the same node.
+		parent := core.NodeID(req.GetParentId())
+		id, seq, err := s.engine.CreateNodeOnce(sessionFrom(ctx), req.GetRequestId(), parent, spec)
 		if err != nil {
 			return nil, err
 		}
@@ -149,7 +151,7 @@ func (s *Server) EnsureNode(ctx context.Context, req *pb.EnsureNodeRequest) (*pb
 func (s *Server) Consume(ctx context.Context, req *pb.ConsumeRequest) (*pb.ConsumeResponse, error) {
 	node, resource := core.NodeID(req.GetNodeId()), core.Resource(req.GetResource())
 	return once(ctx, s, req.GetRequestId(), req, func() (*pb.ConsumeResponse, error) {
-		seq, err := s.engine.Consume(sessionFrom(ctx), node, resource, req.GetAmount())
+		seq, err := s.engine.ConsumeOnce(sessionFrom(ctx), req.GetRequestId(), node, resource, req.GetAmount())
 		if err != nil {
 			return nil, err
 		}
@@ -269,7 +271,8 @@ func (s *Server) Acquire(ctx context.Context, req *pb.AcquireRequest) (*pb.Acqui
 	}
 	sid, node, class := sessionFrom(ctx), core.NodeID(req.GetNodeId()), core.Class(req.GetClass())
 	return once(ctx, s, req.GetRequestId(), req, func() (*pb.AcquireResponse, error) {
-		lease, seq, err := s.engine.Acquire(ctx, sid, node, class, core.AcquireOptions{MaxHold: hold})
+		opts := core.AcquireOptions{MaxHold: hold, Request: req.GetRequestId()}
+		lease, seq, err := s.engine.Acquire(ctx, sid, node, class, opts)
 		if err != nil {
 			return nil, err
 		}
