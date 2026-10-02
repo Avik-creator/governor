@@ -36,6 +36,9 @@ var (
 
 	// ErrClosed reports an operation on a node that has ended.
 	ErrClosed = errors.New("governor: node has ended")
+
+	// ErrCorrupt reports recorded events that cannot be replayed by Restore.
+	ErrCorrupt = errors.New("governor: corrupt event log")
 )
 
 // DeniedError is the detail of a quota denial; it matches ErrDenied.

@@ -68,7 +68,7 @@ func (e *Engine) OpenSession(scope NodeID, ttl time.Duration) (SessionID, time.T
 		s.expires = e.clock.Now().Add(ttl)
 	}
 	e.sessions[s.id] = s
-	e.emit(Event{Kind: EventSessionOpened, Node: n.id, Session: s.id, Expires: s.expires})
+	e.emit(Event{Kind: EventSessionOpened, Node: n.id, Session: s.id, TTL: ttl, Expires: s.expires})
 	return s.id, s.expires, e.seq, nil
 }
 
@@ -160,14 +160,8 @@ func (e *Engine) grant(n *node, class Class, s *session, opts AcquireOptions) *l
 	l := &lease{id: LeaseID(e.nextID()), n: n, class: class, s: s}
 	if opts.MaxHold > 0 {
 		l.expires = e.clock.Now().Add(opts.MaxHold)
-		e.timedLeases[l.id] = l
 	}
-	for a := n; a != nil; a = a.parent {
-		a.held[class]++
-	}
-	n.leases[l.id] = l
-	s.leases[l.id] = l
-	e.leases[l.id] = l
+	e.addLease(l)
 	e.emit(Event{
 		Kind:    EventLeaseGranted,
 		Node:    n.id,
@@ -179,8 +173,21 @@ func (e *Engine) grant(n *node, class Class, s *session, opts AcquireOptions) *l
 	return l
 }
 
-// endLease is the only place a lease ends; the caller must dispatch afterwards.
-func (e *Engine) endLease(l *lease, why LeaseEnd) {
+// addLease records l as held by its node, its session and the whole chain.
+func (e *Engine) addLease(l *lease) {
+	for a := l.n; a != nil; a = a.parent {
+		a.held[l.class]++
+	}
+	l.n.leases[l.id] = l
+	l.s.leases[l.id] = l
+	e.leases[l.id] = l
+	if !l.expires.IsZero() {
+		e.timedLeases[l.id] = l
+	}
+}
+
+// dropLease undoes addLease and remembers how and when the lease ended.
+func (e *Engine) dropLease(l *lease, why LeaseEnd, at time.Time) {
 	for a := l.n; a != nil; a = a.parent {
 		a.held[l.class]--
 	}
@@ -188,7 +195,12 @@ func (e *Engine) endLease(l *lease, why LeaseEnd) {
 	delete(l.s.leases, l.id)
 	delete(e.leases, l.id)
 	delete(e.timedLeases, l.id)
-	e.tombs[l.id] = tomb{end: why, at: e.clock.Now()}
+	e.tombs[l.id] = tomb{end: why, at: at}
+}
+
+// endLease is the only place a lease ends; the caller must dispatch afterwards.
+func (e *Engine) endLease(l *lease, why LeaseEnd) {
+	e.dropLease(l, why, e.clock.Now())
 	e.emit(Event{Kind: EventLeaseEnded, Node: l.n.id, Lease: l.id, Class: l.class, End: why})
 }
 

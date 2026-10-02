@@ -46,6 +46,9 @@ type Event struct {
 	Session SessionID `json:"session,omitempty"`
 	Lease   LeaseID   `json:"lease,omitempty"`
 
+	// TTL is set on session_opened; zero means the session never expires.
+	TTL time.Duration `json:"ttl,omitempty"`
+
 	// Expires is when a session, or a lease with a maximum hold time, expires.
 	Expires time.Time `json:"expires,omitzero"`
 

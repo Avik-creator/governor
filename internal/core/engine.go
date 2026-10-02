@@ -82,6 +82,15 @@ func New(cfg Config) (*Engine, error) {
 	if !cfg.Root.Deadline.IsZero() {
 		return nil, fmt.Errorf("%w: the root cannot have a deadline", ErrInvalid)
 	}
+	e := newEmpty(cfg)
+	spec := cfg.Root.clone()
+	e.root = e.addNode(RootID, nil, spec)
+	e.emit(Event{Kind: EventNodeCreated, Node: RootID, Spec: &spec})
+	return e, nil
+}
+
+// newEmpty returns an engine with no nodes, not even the root.
+func newEmpty(cfg Config) *Engine {
 	e := &Engine{
 		clock:       cfg.Clock,
 		sink:        cfg.Sink,
@@ -102,10 +111,7 @@ func New(cfg Config) (*Engine, error) {
 	if e.retention <= 0 {
 		e.retention = time.Minute
 	}
-	spec := cfg.Root.clone()
-	e.root = e.addNode(RootID, nil, spec)
-	e.emit(Event{Kind: EventNodeCreated, Node: RootID, Spec: &spec})
-	return e, nil
+	return e
 }
 
 // validate reports whether s can describe a node, wrapping ErrInvalid if not.
@@ -295,6 +301,13 @@ func (e *Engine) Consume(sid SessionID, id NodeID, r Resource, amount int64) (ui
 			return 0, a.denied(r, amount, limit)
 		}
 	}
+	n.charge(r, amount)
+	e.emit(Event{Kind: EventConsumed, Node: n.id, Session: sid, Resource: r, Amount: amount})
+	return e.seq, nil
+}
+
+// charge adds amount of r to n and its chain, tracking each largest consumer.
+func (n *node) charge(r Resource, amount int64) {
 	n.self[r] += amount
 	for a := n; a != nil; a = a.parent {
 		a.used[r] += amount
@@ -302,8 +315,6 @@ func (e *Engine) Consume(sid SessionID, id NodeID, r Resource, amount int64) (ui
 			p.top[r] = a
 		}
 	}
-	e.emit(Event{Kind: EventConsumed, Node: n.id, Session: sid, Resource: r, Amount: amount})
-	return e.seq, nil
 }
 
 // denied builds the error for a consume that would exceed n's cap.
