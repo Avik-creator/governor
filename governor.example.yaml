@@ -20,6 +20,18 @@ root:
     db: 20
     http: 50
 
+# Limits tuned from what their leases report: the limit rises by one while the
+# downstream is healthy and is cut to 70% when it is slow or signals overload.
+# The limit in root above is where the controller starts.
+adaptive:
+  - class: db
+    target_p95: 50ms    # 95th percentile latency to stay under
+    max_overload: 0.05  # share of releases that may report overload
+    min_limit: 2
+    max_limit: 40
+    interval: 1s
+    min_samples: 20
+
 # One node per tenant. A tenant is matched by name across restarts, and only
 # its limits are re-applied when this file changes.
 tenants:

@@ -19,6 +19,10 @@ import (
 const (
 	DefaultListen       = "127.0.0.1:7600"
 	DefaultReapInterval = time.Second
+
+	DefaultAdaptiveInterval = time.Second
+	DefaultAdaptiveSamples  = 20
+	DefaultAdaptiveOverload = 0.05
 )
 
 // Config is the whole configuration of one governord.
@@ -40,6 +44,31 @@ type Config struct {
 
 	// Tenants are the nodes directly under the root, one per API key.
 	Tenants []Tenant `yaml:"tenants"`
+
+	// Adaptive lists the root limits that are tuned from what their leases report.
+	Adaptive []Adaptive `yaml:"adaptive"`
+}
+
+// Adaptive describes the controller of one class's limit on the root.
+type Adaptive struct {
+	// Class is the class whose root limit is tuned; the limit in Root is where it starts.
+	Class core.Class `yaml:"class"`
+
+	// TargetP95 is the 95th percentile latency the downstream should stay under.
+	TargetP95 time.Duration `yaml:"target_p95"`
+
+	// MaxOverload is the share of releases that may report overload; zero means 0.05.
+	MaxOverload float64 `yaml:"max_overload"`
+
+	// MinLimit and MaxLimit bound what the controller may set.
+	MinLimit int `yaml:"min_limit"`
+	MaxLimit int `yaml:"max_limit"`
+
+	// Interval is how often the limit is reconsidered; zero means one second.
+	Interval time.Duration `yaml:"interval"`
+
+	// MinSamples is how many releases an interval needs; zero means 20.
+	MinSamples int `yaml:"min_samples"`
 }
 
 // Caps are the quotas and limits of one node.
@@ -154,6 +183,26 @@ func (c *Config) validate() error {
 		}
 		if err := t.Caps.validate(); err != nil {
 			return fmt.Errorf("tenant %q: %w", t.Name, err)
+		}
+	}
+	tuned := make(map[core.Class]bool, len(c.Adaptive))
+	for i := range c.Adaptive {
+		a := &c.Adaptive[i]
+		if _, ok := c.Root.Limits[a.Class]; !ok {
+			return fmt.Errorf("adaptive %q: the root has no limit for this class to start from", a.Class)
+		}
+		if tuned[a.Class] {
+			return fmt.Errorf("adaptive %q is listed twice", a.Class)
+		}
+		tuned[a.Class] = true
+		if a.Interval == 0 {
+			a.Interval = DefaultAdaptiveInterval
+		}
+		if a.MinSamples == 0 {
+			a.MinSamples = DefaultAdaptiveSamples
+		}
+		if a.MaxOverload == 0 {
+			a.MaxOverload = DefaultAdaptiveOverload
 		}
 	}
 	return nil

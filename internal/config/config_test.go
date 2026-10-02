@@ -18,6 +18,11 @@ reap_interval: 250ms
 admin_key: ${TEST_ADMIN_KEY}
 root:
   limits: {db: 20, http: 50}
+adaptive:
+  - class: db
+    target_p95: 50ms
+    min_limit: 2
+    max_limit: 40
 tenants:
   - name: team-a
     api_key: ${TEST_KEY_A}
@@ -49,6 +54,13 @@ func TestParse(t *testing.T) {
 	}
 	if want := map[core.Class]int{"db": 20, "http": 50}; !maps.Equal(cfg.Root.Spec().Limits, want) {
 		t.Errorf("root limits = %v, want %v", cfg.Root.Limits, want)
+	}
+	want := Adaptive{
+		Class: "db", TargetP95: 50 * time.Millisecond, MinLimit: 2, MaxLimit: 40,
+		Interval: DefaultAdaptiveInterval, MinSamples: DefaultAdaptiveSamples, MaxOverload: DefaultAdaptiveOverload,
+	}
+	if len(cfg.Adaptive) != 1 || cfg.Adaptive[0] != want {
+		t.Errorf("adaptive = %+v, want %+v with the defaults filled in", cfg.Adaptive, want)
 	}
 	if len(cfg.Tenants) != 2 {
 		t.Fatalf("got %d tenants, want 2", len(cfg.Tenants))
@@ -96,6 +108,8 @@ func TestParseRejects(t *testing.T) {
 		{"tenant with admin key", "admin_key: k\ntenants: [{name: a, api_key: k}]", "admin_key"},
 		{"negative weight", "tenants: [{name: a, api_key: k, weight: -1}]", "weight"},
 		{"negative quota", "tenants: [{name: a, api_key: k, quotas: {http: -1}}]", "quota"},
+		{"adaptive class without a root limit", "adaptive: [{class: db}]", "no limit"},
+		{"adaptive class twice", "root: {limits: {db: 4}}\nadaptive: [{class: db}, {class: db}]", "listed twice"},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
