@@ -1,0 +1,10 @@
+# Scrapes the governord that listens for metrics on port 7601 of the host.
+global:
+  scrape_interval: 5s
+  evaluation_interval: 5s
+
+scrape_configs:
+  - job_name: governord
+    static_configs:
+      - targets:
+          - host.docker.internal:7601
