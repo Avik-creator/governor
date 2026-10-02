@@ -344,6 +344,10 @@ func (e *Engine) SetLimit(id NodeID, class Class, limit int) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
+	// Setting the limit it already has changes nothing, so nothing is recorded.
+	if old, ok := n.limits[class]; ok && old == limit {
+		return e.seq, nil
+	}
 	n.limits[class] = limit
 	e.emit(Event{Kind: EventLimitChanged, Node: n.id, Class: class, Limit: limit})
 	e.dispatch()

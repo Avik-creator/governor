@@ -61,6 +61,13 @@ type Spec struct {
 	Priority int `json:"priority,omitempty"`
 }
 
+// Child describes one child of a node, as listed by Engine.Children.
+type Child struct {
+	ID    NodeID
+	Name  string
+	State State
+}
+
 // AcquireOptions adjusts a single lease acquisition.
 type AcquireOptions struct {
 	// MaxHold expires the lease after this long; zero means no maximum.

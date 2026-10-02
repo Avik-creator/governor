@@ -1,9 +1,11 @@
 package core
 
 import (
+	"cmp"
 	"context"
 	"fmt"
 	"maps"
+	"slices"
 	"sync"
 	"time"
 )
@@ -405,6 +407,22 @@ func (e *Engine) Done(sid SessionID, id NodeID) (<-chan struct{}, error) {
 		}
 	}
 	return n.done, nil
+}
+
+// Children lists the children of a node, ordered by id.
+func (e *Engine) Children(sid SessionID, id NodeID) ([]Child, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, n, err := e.target(sid, id)
+	if err != nil {
+		return nil, err
+	}
+	children := make([]Child, 0, len(n.children))
+	for _, c := range n.children {
+		children = append(children, Child{ID: c.id, Name: c.name, State: c.state})
+	}
+	slices.SortFunc(children, func(a, b Child) int { return cmp.Compare(a.ID, b.ID) })
+	return children, nil
 }
 
 // State returns the node's current state, applying its deadline first.

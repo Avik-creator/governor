@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -466,6 +467,49 @@ func TestSessionScope(t *testing.T) {
 	e.mu.Unlock()
 	if after != before {
 		t.Errorf("forbidden calls emitted %d events, want 0", after-before)
+	}
+}
+
+func TestChildren(t *testing.T) {
+	e, admin, _ := newEngine(t, Spec{})
+	a := mustNode(t, e, admin, RootID, Spec{Name: "a"})
+	b := mustNode(t, e, admin, RootID, Spec{Name: "b"})
+	mustNode(t, e, admin, a, Spec{Name: "grandchild"})
+	if _, err := e.Cancel(admin, b); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	got, err := e.Children(admin, RootID)
+	if err != nil {
+		t.Fatalf("Children: %v", err)
+	}
+	want := []Child{{a, "a", StateActive}, {b, "b", StateCancelled}}
+	if !slices.Equal(got, want) {
+		t.Errorf("Children(root) = %v, want %v", got, want)
+	}
+	if got, _ := e.Children(admin, b); len(got) != 0 {
+		t.Errorf("Children of a leaf = %v, want none", got)
+	}
+	scoped := mustSession(t, e, a, 0)
+	if _, err := e.Children(scoped, RootID); !errors.Is(err, ErrForbidden) {
+		t.Errorf("Children outside the scope = %v, want ErrForbidden", err)
+	}
+}
+
+func TestSetLimitUnchangedEmitsNothing(t *testing.T) {
+	rec := &recorder{}
+	e, err := New(Config{Sink: rec, Root: Spec{Limits: map[Class]int{"db": 4}}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	for _, limit := range []int{4, 4, 2, 2} {
+		if _, err := e.SetLimit(RootID, "db", limit); err != nil {
+			t.Fatalf("SetLimit: %v", err)
+		}
+	}
+	// Only the change from 4 to 2 is an event, after the root's creation.
+	if len(rec.events) != 2 || rec.events[1].Limit != 2 {
+		t.Errorf("events = %v, want one limit_changed to 2", rec.events)
 	}
 }
 
