@@ -62,7 +62,8 @@ below means no other operation can observe an intermediate state.
 
 `Consume(session, node, resource, n)`
 
-1. `n ≥ 1`, the session (if given) is live, the node is `Active`. Otherwise fail.
+1. `n ≥ 1`, the session is live, the node is in its scope (§4.1) and `Active`.
+   Otherwise fail.
 2. For every node `a` on the chain that has a limit for `resource`:
    if `used(a) + n > limit(a)`, fail with `Denied` and change nothing.
 3. Otherwise add `n` to `used` on every node of the chain.
@@ -78,7 +79,7 @@ request that was sent stays sent.
 
 `Acquire(ctx, session, node, class) → lease`
 
-1. Session live, node `Active`. Otherwise fail.
+1. Session live, node in its scope and `Active`. Otherwise fail.
 2. The request **fits** if every node on the chain with a limit for `class` has
    `held < limit`.
 3. If it fits, grant immediately: `held += 1` on every node of the chain.
@@ -136,6 +137,24 @@ Session ids and lease ids come from one monotonic sequence and are never reissue
 A lease id is therefore its own **fencing token**: once a lease has ended, no
 operation carrying that id can succeed, and a larger id is always a later grant.
 
+### 4.1 Scope
+
+A session is opened on one node, its **scope**, and may only act inside that
+node's subtree. `CreateNode`, `Consume`, `Acquire`, `Cancel`, `Close` and watching
+a node all take a session, and fail with `Forbidden` when the node they name is
+outside its scope. A forbidden call changes nothing. The scope is fixed for the
+life of the session.
+
+A session scoped to a tenant therefore cannot spend, hold or cancel anything that
+belongs to another tenant. A session scoped to the root can act anywhere.
+`Release` needs no scope check, because a lease can only be released by the
+session that holds it (§3.3).
+
+Over the API a client never chooses its scope. `OpenSession` carries an API key,
+`governord` maps the key to a node from its configuration, and the reply carries
+a random 128-bit token that names the session on every later call. Numeric
+session ids never leave the server, so they cannot be guessed.
+
 ## 5. Invariants
 
 These hold between any two operations. The tests check them after every step of
@@ -152,6 +171,9 @@ randomized operation sequences.
 - **I7 Terminal is final.** A terminal node never becomes active and never admits
   an operation.
 - **I8 Work conserving.** After every operation, no queued acquire fits.
+- **I9 Isolation.** A session never changes a node outside its scope: every live
+  lease sits inside its session's scope, and a forbidden call leaves usage,
+  leases and node states as they were.
 
 I1 together with I2 is the headline property: *no descendant can consume more than
 remains in any ancestor's envelope.*
@@ -270,6 +292,10 @@ on stdin and calls `governord`.
   performed stays charged, so a budget may be under-used but never exceeded.
 - **One `governord` is the authority.** There is no replication. Availability comes
   from fast restart and durable state, not from consensus.
+- **Isolation is only as strong as the keys.** Traffic is not encrypted and API
+  keys sit in the configuration file. A process that can read another tenant's
+  key or token can act as that tenant; keeping them apart is the operating
+  system's job.
 - **Hooks see tool calls only.** Model calls and tokens are not gated, a shell
   command that makes many requests counts as one tool call, and a tool that is
   already running cannot be interrupted.
