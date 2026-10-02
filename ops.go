@@ -24,7 +24,7 @@ func newRequestID() string {
 	return rand.Text()
 }
 
-// call runs an RPC, repeating it while governord is unreachable; the request must carry a request id.
+// call runs an RPC, repeating it while governord is unreachable; the request must be safe to repeat.
 func call[T any](ctx context.Context, c *Client, rpc func(context.Context) (T, error)) (T, error) {
 	var (
 		resp T
