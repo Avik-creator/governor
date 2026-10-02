@@ -34,6 +34,13 @@ func Restore(cfg Config, snap *Snapshot, events iter.Seq2[Event, error]) (*Engin
 	return e, nil
 }
 
+// recorded remembers what a replayed request did, if its session is still known.
+func (e *Engine) recorded(ev Event, did outcome) {
+	if s := e.sessions[ev.Session]; s != nil {
+		s.remember(ev.Request, did)
+	}
+}
+
 // apply replays one recorded event without checking limits or emitting anything.
 func (e *Engine) apply(ev Event) error {
 	if ev.Seq != e.seq+1 {
@@ -65,6 +72,7 @@ func (e *Engine) apply(ev Event) error {
 			return fmt.Errorf("node %d has no spec or already exists", ev.Node)
 		}
 		e.addNode(ev.Node, n, *ev.Spec)
+		e.recorded(ev, outcome{kind: ev.Kind, node: ev.Parent, result: uint64(ev.Node)})
 	case EventNodeEnded:
 		e.setEnded(n, ev.State, ev.Time)
 	case EventNodeRemoved:
@@ -74,6 +82,7 @@ func (e *Engine) apply(ev Event) error {
 		e.remove(n)
 	case EventConsumed:
 		n.charge(ev.Resource, ev.Amount)
+		e.recorded(ev, outcome{kind: ev.Kind, node: ev.Node, resource: ev.Resource, amount: ev.Amount})
 	case EventSessionOpened:
 		e.sessions[ev.Session] = &session{
 			id:      ev.Session,
@@ -88,6 +97,7 @@ func (e *Engine) apply(ev Event) error {
 			return fmt.Errorf("unknown session %d", ev.Session)
 		}
 		e.addLease(&lease{id: ev.Lease, n: n, class: ev.Class, s: s, expires: ev.Expires})
+		e.recorded(ev, outcome{kind: ev.Kind, node: ev.Node, class: ev.Class, result: uint64(ev.Lease)})
 	case EventLeaseEnded:
 		l := e.leases[ev.Lease]
 		if l == nil {

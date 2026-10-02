@@ -72,6 +72,9 @@ type Child struct {
 type AcquireOptions struct {
 	// MaxHold expires the lease after this long; zero means no maximum.
 	MaxHold time.Duration
+
+	// Request makes a repeated acquire with the same id return the same lease.
+	Request string
 }
 
 // Report is what a holder tells the engine when it releases a lease.

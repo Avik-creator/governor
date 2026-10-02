@@ -15,6 +15,9 @@ type session struct {
 	expires time.Time     // zero when the session never expires
 	leases  map[LeaseID]*lease
 	done    chan struct{} // closed when the session ends; created on demand
+
+	requests map[string]outcome // what the session's recent requests with an id did
+	order    []string           // their ids, oldest first
 }
 
 // within reports whether the session's scope is n or lies beneath it.
@@ -198,7 +201,9 @@ func (e *Engine) grant(n *node, class Class, s *session, opts AcquireOptions) *l
 		Lease:   l.id,
 		Class:   class,
 		Expires: l.expires,
+		Request: opts.Request,
 	})
+	s.remember(opts.Request, outcome{kind: EventLeaseGranted, node: n.id, class: class, result: uint64(l.id)})
 	return l
 }
 
@@ -242,7 +247,19 @@ func (e *Engine) Acquire(ctx context.Context, sid SessionID, id NodeID, class Cl
 		return 0, 0, err
 	}
 	e.mu.Lock()
-	s, n, err := e.activeTarget(sid, id)
+	s, err := e.liveSession(sid)
+	if err != nil {
+		e.mu.Unlock()
+		return 0, 0, err
+	}
+	// A repeated request gets the lease it was granted before, even if that lease has since ended.
+	did := outcome{kind: EventLeaseGranted, node: id, class: class}
+	if lease, ok, err := s.recall(opts.Request, did); ok || err != nil {
+		seq := e.seq
+		e.mu.Unlock()
+		return LeaseID(lease), seq, err
+	}
+	_, n, err := e.activeTarget(sid, id)
 	if err != nil {
 		e.mu.Unlock()
 		return 0, 0, err

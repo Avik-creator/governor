@@ -47,6 +47,9 @@ type Event struct {
 	Session SessionID `json:"session,omitempty"`
 	Lease   LeaseID   `json:"lease,omitempty"`
 
+	// Request is the id of the request that caused the event, if it carried one.
+	Request string `json:"request,omitempty"`
+
 	// TTL is set on session_opened; zero means the session never expires.
 	TTL time.Duration `json:"ttl,omitempty"`
 

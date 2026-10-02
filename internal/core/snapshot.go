@@ -45,6 +45,20 @@ type SessionState struct {
 	Scope   NodeID        `json:"scope"`
 	TTL     time.Duration `json:"ttl,omitempty"`
 	Expires time.Time     `json:"expires,omitzero"`
+
+	// Requests are what the session's recent requests with an id did, oldest first.
+	Requests []RequestState `json:"requests,omitempty"`
+}
+
+// RequestState is one remembered request of a session.
+type RequestState struct {
+	ID       string    `json:"id"`
+	Kind     EventKind `json:"kind"`
+	Node     NodeID    `json:"node"`
+	Resource Resource  `json:"resource,omitempty"`
+	Amount   int64     `json:"amount,omitempty"`
+	Class    Class     `json:"class,omitempty"`
+	Result   uint64    `json:"result,omitempty"`
 }
 
 // LeaseState is one held lease of a Snapshot.
@@ -99,7 +113,15 @@ func (e *Engine) Snapshot() *Snapshot {
 		snap.Nodes = append(snap.Nodes, state)
 	}
 	for _, s := range e.sessions {
-		snap.Sessions = append(snap.Sessions, SessionState{ID: s.id, Scope: s.scope.id, TTL: s.ttl, Expires: s.expires})
+		state := SessionState{ID: s.id, Scope: s.scope.id, TTL: s.ttl, Expires: s.expires}
+		for _, id := range s.order {
+			did := s.requests[id]
+			state.Requests = append(state.Requests, RequestState{
+				ID: id, Kind: did.kind, Node: did.node, Resource: did.resource,
+				Amount: did.amount, Class: did.class, Result: did.result,
+			})
+		}
+		snap.Sessions = append(snap.Sessions, state)
 	}
 	for _, l := range e.leases {
 		snap.Leases = append(snap.Leases, LeaseState{
@@ -175,9 +197,15 @@ func (e *Engine) load(snap *Snapshot) error {
 		if scope == nil {
 			return fmt.Errorf("session %d is confined to unknown node %d", state.ID, state.Scope)
 		}
-		e.sessions[state.ID] = &session{
+		s := &session{
 			id: state.ID, scope: scope, ttl: state.TTL, expires: state.Expires, leases: make(map[LeaseID]*lease),
 		}
+		for _, r := range state.Requests {
+			s.remember(r.ID, outcome{
+				kind: r.Kind, node: r.Node, resource: r.Resource, amount: r.Amount, class: r.Class, result: r.Result,
+			})
+		}
+		e.sessions[state.ID] = s
 	}
 	for _, state := range snap.Leases {
 		n, s := e.nodes[state.Node], e.sessions[state.Session]

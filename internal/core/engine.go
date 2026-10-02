@@ -284,22 +284,7 @@ func (e *Engine) expireDeadline(n *node) {
 
 // CreateNode adds a child under parent and returns its id and event sequence.
 func (e *Engine) CreateNode(sid SessionID, parent NodeID, spec Spec) (NodeID, uint64, error) {
-	if err := spec.validate(); err != nil {
-		return 0, 0, err
-	}
-	spec = spec.clone()
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	_, p, err := e.activeTarget(sid, parent)
-	if err != nil {
-		return 0, 0, err
-	}
-	if p.depth >= MaxDepth {
-		return 0, 0, fmt.Errorf("%w: tree is deeper than %d", ErrInvalid, MaxDepth)
-	}
-	n := e.addNode(NodeID(e.nextID()), p, spec)
-	e.emit(Event{Kind: EventNodeCreated, Node: n.id, Parent: p.id, Spec: &spec})
-	return n.id, e.seq, nil
+	return e.CreateNodeOnce(sid, "", parent, spec)
 }
 
 // EnsureNode returns parent's newest child named spec.Name, ended or not, creating it if there is none.
@@ -356,21 +341,7 @@ func (n *node) check(r Resource, amount int64) error {
 
 // Consume charges amount of r to the node and its whole chain, or to nothing.
 func (e *Engine) Consume(sid SessionID, id NodeID, r Resource, amount int64) (uint64, error) {
-	if r == "" || amount <= 0 {
-		return 0, fmt.Errorf("%w: bad resource or amount", ErrInvalid)
-	}
-	e.mu.Lock()
-	defer e.mu.Unlock()
-	_, n, err := e.activeTarget(sid, id)
-	if err != nil {
-		return 0, err
-	}
-	if err := n.check(r, amount); err != nil {
-		return 0, err
-	}
-	n.charge(r, amount)
-	e.emit(Event{Kind: EventConsumed, Node: n.id, Session: sid, Resource: r, Amount: amount})
-	return e.seq, nil
+	return e.ConsumeOnce(sid, "", id, r, amount)
 }
 
 // charge adds amount of r to n and its chain, tracking each largest consumer.
