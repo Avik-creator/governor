@@ -1,0 +1,35 @@
+# Example configuration for governord. ${NAME} is replaced by the environment
+# variable NAME, and governord refuses to start if one of them is not set.
+
+listen: 127.0.0.1:7600
+
+# The Postgres that holds the durable record. Leave empty to keep everything in
+# memory, in which case nothing survives a restart.
+database_url: ${GOVERNOR_DATABASE_URL}
+
+# How often expired sessions, leases and deadlines are applied.
+reap_interval: 1s
+
+# Opens sessions that may act on every tenant. Leave empty to allow none.
+admin_key: ${GOVERNOR_ADMIN_KEY}
+
+# The root's limits are the shared pools every tenant draws from.
+root:
+  limits:
+    db: 20
+    http: 50
+
+# One node per tenant. A tenant is matched by name across restarts, and only
+# its limits are re-applied when this file changes.
+tenants:
+  - name: team-a
+    api_key: ${TEAM_A_KEY}
+    weight: 3
+    quotas:
+      http: 100000
+      tool_calls: 5000
+    limits:
+      agents: 5
+
+  - name: team-b
+    api_key: ${TEAM_B_KEY}
