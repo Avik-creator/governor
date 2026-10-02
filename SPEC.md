@@ -245,28 +245,35 @@ attempt counts.
 | after the commit, before the reply | The change is durable. The caller sees an error and retries with the same request id. |
 | while a release is uncommitted | The lease is still held after restart, until the release is retried or the session ends. |
 
-## 10. Claude Code hooks
+## 10. Agent CLI hooks
 
-A Claude Code run is governed through its hooks. `governor hook` reads the event
-on stdin and calls `governord`.
+Claude Code and Codex both run a command before every tool call and refuse the
+tool if the command exits with code 2. `governor hook` is that command for both.
+It handles one event, `PreToolUse`, and keeps no state between calls.
 
-| Hook event | Action |
-| --- | --- |
-| `SessionStart` | Create the task node for `session_id`. |
-| `PreToolUse` | Consume the quotas mapped to the tool. Acquire a lease if the tool has a concurrency class, keyed by `tool_use_id`. Exit 2 with the reason on denial. |
-| `PreToolUse` on `Agent` | Also acquire an `agents` lease. This is the only point where a spawn can be refused or made to wait. |
-| `PostToolUse`, `PostToolUseFailure` | Release the lease for `tool_use_id` and report the tool's latency. |
-| `SubagentStop` | Release the `agents` lease and close the subagent's node. |
-| `SessionEnd` | Close the task node. |
+On each tool call it:
 
-- **Attribution.** A call carrying `agent_id` is charged to a child node for that
-  subagent, created on its first call. Calls without one are charged to the task.
+1. finds or creates the run's node, named `<cli>:<session_id>`, under the tenant;
+   the node gets its quotas and a deadline when it is first created;
+2. inside a subagent, finds or creates the subagent's node under the run, which
+   costs the run one `agents` unit, charged in the same step as the creation;
+3. consumes one `tool_calls` unit from that node.
+
+If any step is refused, the hook exits 2 and prints the reason for the model.
+
+- **Find or create.** `EnsureNode` returns the newest child with a given name even
+  if it has ended. A run that was cancelled or timed out therefore stays refused;
+  asking again never replaces it with a fresh budget.
+- **Calls by API key.** A hook is a short-lived process, so `EnsureNode` and
+  `Consume` accept the tenant's API key directly. The server keeps one standing
+  session per key for these calls. Leases still need a session of their own.
+- **Fail closed.** A malformed event, a wrong key or an unreachable `governord`
+  blocks the tool. Neither CLI treats a crashed or timed-out hook as a refusal,
+  so the hook bounds its own wait and answers explicitly.
+- **No concurrency limit.** A lease taken before a tool call would have to be
+  released by a different process after it, so hooks use quotas and deadlines only.
 - **Flat subagents.** Hooks expose no parent link, so every subagent node sits
-  directly under the task node, whatever its real nesting depth.
-- **Hold time.** A hook is a short-lived process and cannot heartbeat, so every
-  hook lease has a maximum hold time (§3.2).
-- **Stopping a run.** When the task has ended, the hook returns `continue: false`
-  so the run stops instead of retrying denied tools.
+  directly under the run, whatever its real nesting depth.
 
 ## 11. Failure scenarios
 
@@ -279,8 +286,9 @@ on stdin and calls `governord`.
 | Node cancelled while workers hold leases | Leases revoked, capacity freed, later operations rejected. |
 | Acquire context cancelled while queued | Waiter removed. If a grant raced with the cancel, the lease is released again. |
 | Parent closed with children running | Children become `Cancelled`. |
-| Tool crashes, `PostToolUse` never fires | The lease ends at its maximum hold time. |
-| Claude Code is killed, `SessionEnd` never fires | The task node ends at its deadline. |
+| A lease holder never releases, such as an unclosed response body | The lease ends at its maximum hold time. |
+| An agent CLI is killed mid-run | Nothing is held, so nothing leaks; the run's node ends at its deadline. |
+| A subagent is over the run's `agents` budget | It gets no node, and every tool call it makes is refused. |
 
 ## 12. What is not guaranteed
 
@@ -301,4 +309,8 @@ on stdin and calls `governord`.
   system's job.
 - **Hooks see tool calls only.** Model calls and tokens are not gated, a shell
   command that makes many requests counts as one tool call, and a tool that is
-  already running cannot be interrupted.
+  already running cannot be interrupted. Codex does not run hooks for its hosted
+  tools, such as web search.
+- **Hooks guard against accidents, not a hostile agent.** The agent's process can
+  read its own API key and can edit the hook configuration. It cannot raise its
+  budget, but it can remove the hook.
