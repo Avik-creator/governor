@@ -5,9 +5,14 @@ import (
 	"iter"
 )
 
-// Restore rebuilds an engine by replaying its recorded events; with none it is New.
-func Restore(cfg Config, events iter.Seq2[Event, error]) (*Engine, error) {
+// Restore rebuilds an engine from a snapshot, if there is one, and the events recorded after it.
+func Restore(cfg Config, snap *Snapshot, events iter.Seq2[Event, error]) (*Engine, error) {
 	e := newEmpty(cfg)
+	if snap != nil {
+		if err := e.load(snap); err != nil {
+			return nil, fmt.Errorf("%w: snapshot at event %d: %v", ErrCorrupt, snap.Seq, err)
+		}
+	}
 	for ev, err := range events {
 		if err != nil {
 			return nil, err

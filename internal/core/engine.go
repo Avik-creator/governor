@@ -494,7 +494,13 @@ func (e *Engine) remove(n *node) {
 	}
 	delete(p.children, n.id)
 	if p.named[n.name] == n {
+		// The name now belongs to the newest child that still has it, if any.
 		delete(p.named, n.name)
+		for _, c := range p.children {
+			if newest := p.named[n.name]; c.name == n.name && (newest == nil || c.id > newest.id) {
+				p.named[n.name] = c
+			}
+		}
 	}
 	for r, top := range p.top {
 		if top != n {
