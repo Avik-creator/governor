@@ -8,10 +8,12 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/Avik-creator/governor/internal/gen/governor/v1;governorv1";
 
 // GovernorService is the API of governord; SPEC.md defines its semantics.
-// Calls carry "authorization: Bearer <secret>" metadata: an API key or a session token.
+// Calls carry "authorization: Bearer <secret>" metadata: a session token, or an API key where allowed.
 service GovernorService {
   // CreateNode adds a child node under a parent.
   rpc CreateNode(CreateNodeRequest) returns (CreateNodeResponse);
+  // EnsureNode returns the parent's newest child with the spec's name, creating it if there is none.
+  rpc EnsureNode(EnsureNodeRequest) returns (EnsureNodeResponse);
   // Consume charges a quota to a node and its whole chain, or to nothing.
   rpc Consume(ConsumeRequest) returns (ConsumeResponse);
   // CancelNode ends a node and its subtree as cancelled.
@@ -108,6 +110,22 @@ message CreateNodeRequest {
 
 message CreateNodeResponse {
   uint64 node_id = 1;
+}
+
+message EnsureNodeRequest {
+  // parent_id of zero means the node the caller is confined to.
+  uint64 parent_id = 1;
+  // spec must carry a name; it is only used if the node has to be created.
+  Spec spec = 2;
+  // charge_resource and charge_amount are charged to the parent if the node is created.
+  string charge_resource = 3;
+  int64 charge_amount = 4;
+}
+
+message EnsureNodeResponse {
+  uint64 node_id = 1;
+  // created is false when the node already existed, even if it has ended.
+  bool created = 2;
 }
 
 message ConsumeRequest {

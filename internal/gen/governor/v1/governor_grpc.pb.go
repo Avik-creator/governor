@@ -20,6 +20,7 @@ const _ = grpc.SupportPackageIsVersion9
 
 const (
 	GovernorService_CreateNode_FullMethodName   = "/governor.v1.GovernorService/CreateNode"
+	GovernorService_EnsureNode_FullMethodName   = "/governor.v1.GovernorService/EnsureNode"
 	GovernorService_Consume_FullMethodName      = "/governor.v1.GovernorService/Consume"
 	GovernorService_CancelNode_FullMethodName   = "/governor.v1.GovernorService/CancelNode"
 	GovernorService_CloseNode_FullMethodName    = "/governor.v1.GovernorService/CloseNode"
@@ -37,10 +38,12 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // GovernorService is the API of governord; SPEC.md defines its semantics.
-// Calls carry "authorization: Bearer <secret>" metadata: an API key or a session token.
+// Calls carry "authorization: Bearer <secret>" metadata: a session token, or an API key where allowed.
 type GovernorServiceClient interface {
 	// CreateNode adds a child node under a parent.
 	CreateNode(ctx context.Context, in *CreateNodeRequest, opts ...grpc.CallOption) (*CreateNodeResponse, error)
+	// EnsureNode returns the parent's newest child with the spec's name, creating it if there is none.
+	EnsureNode(ctx context.Context, in *EnsureNodeRequest, opts ...grpc.CallOption) (*EnsureNodeResponse, error)
 	// Consume charges a quota to a node and its whole chain, or to nothing.
 	Consume(ctx context.Context, in *ConsumeRequest, opts ...grpc.CallOption) (*ConsumeResponse, error)
 	// CancelNode ends a node and its subtree as cancelled.
@@ -75,6 +78,16 @@ func (c *governorServiceClient) CreateNode(ctx context.Context, in *CreateNodeRe
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(CreateNodeResponse)
 	err := c.cc.Invoke(ctx, GovernorService_CreateNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *governorServiceClient) EnsureNode(ctx context.Context, in *EnsureNodeRequest, opts ...grpc.CallOption) (*EnsureNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(EnsureNodeResponse)
+	err := c.cc.Invoke(ctx, GovernorService_EnsureNode_FullMethodName, in, out, cOpts...)
 	if err != nil {
 		return nil, err
 	}
@@ -195,10 +208,12 @@ func (c *governorServiceClient) Validate(ctx context.Context, in *ValidateReques
 // for forward compatibility.
 //
 // GovernorService is the API of governord; SPEC.md defines its semantics.
-// Calls carry "authorization: Bearer <secret>" metadata: an API key or a session token.
+// Calls carry "authorization: Bearer <secret>" metadata: a session token, or an API key where allowed.
 type GovernorServiceServer interface {
 	// CreateNode adds a child node under a parent.
 	CreateNode(context.Context, *CreateNodeRequest) (*CreateNodeResponse, error)
+	// EnsureNode returns the parent's newest child with the spec's name, creating it if there is none.
+	EnsureNode(context.Context, *EnsureNodeRequest) (*EnsureNodeResponse, error)
 	// Consume charges a quota to a node and its whole chain, or to nothing.
 	Consume(context.Context, *ConsumeRequest) (*ConsumeResponse, error)
 	// CancelNode ends a node and its subtree as cancelled.
@@ -231,6 +246,9 @@ type UnimplementedGovernorServiceServer struct{}
 
 func (UnimplementedGovernorServiceServer) CreateNode(context.Context, *CreateNodeRequest) (*CreateNodeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method CreateNode not implemented")
+}
+func (UnimplementedGovernorServiceServer) EnsureNode(context.Context, *EnsureNodeRequest) (*EnsureNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method EnsureNode not implemented")
 }
 func (UnimplementedGovernorServiceServer) Consume(context.Context, *ConsumeRequest) (*ConsumeResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method Consume not implemented")
@@ -297,6 +315,24 @@ func _GovernorService_CreateNode_Handler(srv interface{}, ctx context.Context, d
 	}
 	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
 		return srv.(GovernorServiceServer).CreateNode(ctx, req.(*CreateNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GovernorService_EnsureNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(EnsureNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GovernorServiceServer).EnsureNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GovernorService_EnsureNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GovernorServiceServer).EnsureNode(ctx, req.(*EnsureNodeRequest))
 	}
 	return interceptor(ctx, in, info, handler)
 }
@@ -484,6 +520,10 @@ var GovernorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CreateNode",
 			Handler:    _GovernorService_CreateNode_Handler,
+		},
+		{
+			MethodName: "EnsureNode",
+			Handler:    _GovernorService_EnsureNode_Handler,
 		},
 		{
 			MethodName: "Consume",
