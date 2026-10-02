@@ -20,7 +20,7 @@ service GovernorService {
   // WatchNode sends one message when the node ends, then closes the stream.
   rpc WatchNode(WatchNodeRequest) returns (stream WatchNodeResponse);
 
-  // OpenSession registers a lease holder with a time to live.
+  // OpenSession trades an API key for a session confined to the key's node.
   rpc OpenSession(OpenSessionRequest) returns (OpenSessionResponse);
   // Heartbeat renews a session and every lease it holds.
   rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
@@ -56,6 +56,8 @@ enum Reason {
   REASON_NOT_OWNER = 7;
   REASON_DENIED = 8;
   REASON_CLOSED = 9;
+  REASON_FORBIDDEN = 10;
+  REASON_BAD_API_KEY = 11;
 }
 
 // Spec describes a node to create; an empty Spec has no limits of its own.
@@ -99,8 +101,9 @@ message Denial {
 message CreateNodeRequest {
   // request_id makes a retry return the node created the first time.
   string request_id = 1;
-  uint64 parent_id = 2;
-  Spec spec = 3;
+  string session_token = 2;
+  uint64 parent_id = 3;
+  Spec spec = 4;
 }
 
 message CreateNodeResponse {
@@ -110,8 +113,7 @@ message CreateNodeResponse {
 message ConsumeRequest {
   // request_id makes a retry charge nothing a second time.
   string request_id = 1;
-  // session_id is optional; when set the session must be live.
-  uint64 session_id = 2;
+  string session_token = 2;
   uint64 node_id = 3;
   string resource = 4;
   int64 amount = 5;
@@ -120,19 +122,22 @@ message ConsumeRequest {
 message ConsumeResponse {}
 
 message CancelNodeRequest {
-  uint64 node_id = 1;
+  string session_token = 1;
+  uint64 node_id = 2;
 }
 
 message CancelNodeResponse {}
 
 message CloseNodeRequest {
-  uint64 node_id = 1;
+  string session_token = 1;
+  uint64 node_id = 2;
 }
 
 message CloseNodeResponse {}
 
 message WatchNodeRequest {
-  uint64 node_id = 1;
+  string session_token = 1;
+  uint64 node_id = 2;
 }
 
 message WatchNodeResponse {
@@ -141,18 +146,23 @@ message WatchNodeResponse {
 }
 
 message OpenSessionRequest {
+  // api_key selects the node the session is confined to.
+  string api_key = 1;
   // ttl is how long the session lives without a heartbeat; zero means forever.
-  google.protobuf.Duration ttl = 1;
+  google.protobuf.Duration ttl = 2;
 }
 
 message OpenSessionResponse {
-  uint64 session_id = 1;
+  // session_token is a secret that names the session on every later call.
+  string session_token = 1;
+  // scope_id is the node the session is confined to, with its whole subtree.
+  uint64 scope_id = 2;
   // expires_at is unset for a session that never expires.
-  google.protobuf.Timestamp expires_at = 2;
+  google.protobuf.Timestamp expires_at = 3;
 }
 
 message HeartbeatRequest {
-  uint64 session_id = 1;
+  string session_token = 1;
 }
 
 message HeartbeatResponse {
@@ -160,7 +170,7 @@ message HeartbeatResponse {
 }
 
 message CloseSessionRequest {
-  uint64 session_id = 1;
+  string session_token = 1;
 }
 
 message CloseSessionResponse {}
@@ -168,7 +178,7 @@ message CloseSessionResponse {}
 message AcquireRequest {
   // request_id makes a retry return the lease granted the first time.
   string request_id = 1;
-  uint64 session_id = 2;
+  string session_token = 2;
   uint64 node_id = 3;
   string class = 4;
   // max_hold expires the lease after this long; unset means no maximum.
@@ -181,7 +191,7 @@ message AcquireResponse {
 }
 
 message ReleaseRequest {
-  uint64 session_id = 1;
+  string session_token = 1;
   uint64 lease_id = 2;
   // latency is how long the guarded operation took; unset means not measured.
   google.protobuf.Duration latency = 3;
