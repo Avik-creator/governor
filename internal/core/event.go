@@ -9,6 +9,7 @@ type EventKind string
 const (
 	EventNodeCreated   EventKind = "node_created"
 	EventNodeEnded     EventKind = "node_ended"
+	EventNodeRemoved   EventKind = "node_removed"
 	EventConsumed      EventKind = "consumed"
 	EventSessionOpened EventKind = "session_opened"
 	EventSessionEnded  EventKind = "session_ended"

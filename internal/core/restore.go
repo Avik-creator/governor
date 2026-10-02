@@ -61,8 +61,12 @@ func (e *Engine) apply(ev Event) error {
 		}
 		e.addNode(ev.Node, n, *ev.Spec)
 	case EventNodeEnded:
-		n.state = ev.State
-		delete(e.timed, n.id)
+		e.setEnded(n, ev.State, ev.Time)
+	case EventNodeRemoved:
+		if n == e.root || n.state == StateActive {
+			return fmt.Errorf("node %d cannot be removed", n.id)
+		}
+		e.remove(n)
 	case EventConsumed:
 		n.charge(ev.Resource, ev.Amount)
 	case EventSessionOpened:

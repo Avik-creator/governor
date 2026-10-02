@@ -27,23 +27,28 @@ type Config struct {
 	// Retention is how long an ended lease stays known; zero means one minute.
 	Retention time.Duration
 
+	// NodeRetention is how long an ended node stays known before it is removed; zero means a day.
+	NodeRetention time.Duration
+
 	// Root describes the root node, whose limits are the shared pools.
 	Root Spec
 }
 
 // Engine owns the tree; its methods are safe for concurrent use and linearizable.
 type Engine struct {
-	mu        sync.Mutex
-	clock     Clock
-	sink      Sink
-	observer  func(Class, Report)
-	retention time.Duration
+	mu            sync.Mutex
+	clock         Clock
+	sink          Sink
+	observer      func(Class, Report)
+	retention     time.Duration
+	nodeRetention time.Duration
 
 	ids uint64 // last id issued to a node, session or lease
 	seq uint64 // sequence number of the last event
 
 	root        *node
 	nodes       map[NodeID]*node
+	ended       []*node          // nodes that have ended, oldest first, waiting to be removed
 	timed       map[NodeID]*node // active nodes with a deadline of their own
 	sessions    map[SessionID]*session
 	leases      map[LeaseID]*lease
@@ -64,7 +69,8 @@ type node struct {
 	priority int
 
 	quota map[Resource]int64
-	used  map[Resource]int64 // consumed in this subtree
+	used  map[Resource]int64 // consumed in this subtree, including by nodes since removed
+	gone  map[Resource]int64 // consumed by children that have been removed
 	self  map[Resource]int64 // consumed directly at this node
 	top   map[Resource]*node // child with the highest usage
 
@@ -73,6 +79,7 @@ type node struct {
 
 	deadline time.Time // effective: the earliest on the chain
 	state    State
+	endedAt  time.Time // when the node ended; zero while it is active
 	leases   map[LeaseID]*lease
 	done     chan struct{} // closed when the node ends; created on demand
 }
@@ -95,24 +102,28 @@ func New(cfg Config) (*Engine, error) {
 // newEmpty returns an engine with no nodes, not even the root.
 func newEmpty(cfg Config) *Engine {
 	e := &Engine{
-		clock:       cfg.Clock,
-		sink:        cfg.Sink,
-		observer:    cfg.Observer,
-		retention:   cfg.Retention,
-		ids:         uint64(RootID),
-		nodes:       make(map[NodeID]*node),
-		timed:       make(map[NodeID]*node),
-		sessions:    make(map[SessionID]*session),
-		leases:      make(map[LeaseID]*lease),
-		timedLeases: make(map[LeaseID]*lease),
-		tombs:       make(map[LeaseID]tomb),
-		queues:      make(map[Class]*classQueue),
+		clock:         cfg.Clock,
+		sink:          cfg.Sink,
+		observer:      cfg.Observer,
+		retention:     cfg.Retention,
+		nodeRetention: cfg.NodeRetention,
+		ids:           uint64(RootID),
+		nodes:         make(map[NodeID]*node),
+		timed:         make(map[NodeID]*node),
+		sessions:      make(map[SessionID]*session),
+		leases:        make(map[LeaseID]*lease),
+		timedLeases:   make(map[LeaseID]*lease),
+		tombs:         make(map[LeaseID]tomb),
+		queues:        make(map[Class]*classQueue),
 	}
 	if e.clock == nil {
 		e.clock = SystemClock{}
 	}
 	if e.retention <= 0 {
 		e.retention = time.Minute
+	}
+	if e.nodeRetention <= 0 {
+		e.nodeRetention = 24 * time.Hour
 	}
 	return e
 }
@@ -175,6 +186,7 @@ func (e *Engine) addNode(id NodeID, parent *node, spec Spec) *node {
 		priority: spec.Priority,
 		quota:    maps.Clone(spec.Quotas),
 		used:     make(map[Resource]int64),
+		gone:     make(map[Resource]int64),
 		self:     make(map[Resource]int64),
 		top:      make(map[Resource]*node),
 		limits:   maps.Clone(spec.Limits),
@@ -431,8 +443,7 @@ func (e *Engine) markEnded(n *node, state State) {
 	if n.state != StateActive {
 		return
 	}
-	n.state = state
-	delete(e.timed, n.id)
+	e.setEnded(n, state, e.clock.Now())
 	for _, l := range n.leases {
 		e.endLease(l, LeaseRevoked)
 	}
@@ -443,6 +454,82 @@ func (e *Engine) markEnded(n *node, state State) {
 	for _, c := range n.children {
 		e.markEnded(c, StateCancelled)
 	}
+}
+
+// setEnded records that n ended in state at the given time and queues it for removal.
+func (e *Engine) setEnded(n *node, state State, at time.Time) {
+	n.state, n.endedAt = state, at
+	delete(e.timed, n.id)
+	e.ended = append(e.ended, n)
+}
+
+// removeEnded forgets the nodes that ended longer ago than the node retention.
+func (e *Engine) removeEnded(now time.Time) {
+	cutoff := now.Add(-e.nodeRetention)
+	due := 0
+	for ; due < len(e.ended) && !e.ended[due].endedAt.After(cutoff); due++ {
+		n := e.ended[due]
+		// A node removed together with its parent is still in the queue.
+		if e.nodes[n.id] != n {
+			continue
+		}
+		// A session confined to a node that no longer exists could do nothing, so it ends first.
+		for _, s := range e.sessions {
+			if s.within(n) {
+				e.endSession(s, LeaseExpired)
+			}
+		}
+		e.remove(n)
+		e.emit(Event{Kind: EventNodeRemoved, Node: n.id})
+	}
+	e.ended = slices.Delete(e.ended, 0, due)
+}
+
+// remove forgets n and its subtree, keeping what they consumed in the parent's totals.
+func (e *Engine) remove(n *node) {
+	e.forget(n)
+	p := n.parent
+	for r, used := range n.used {
+		p.gone[r] += used
+	}
+	delete(p.children, n.id)
+	if p.named[n.name] == n {
+		delete(p.named, n.name)
+	}
+	for r, top := range p.top {
+		if top != n {
+			continue
+		}
+		if next := p.largest(r); next != nil {
+			p.top[r] = next
+		} else {
+			delete(p.top, r)
+		}
+	}
+}
+
+// forget drops n and everything under it from the engine's index.
+func (e *Engine) forget(n *node) {
+	for _, c := range n.children {
+		e.forget(c)
+	}
+	delete(e.nodes, n.id)
+	delete(e.timed, n.id)
+}
+
+// largest returns the child that has used the most of r, the older one on a tie, or nil.
+func (n *node) largest(r Resource) *node {
+	var top *node
+	for _, c := range n.children {
+		used := c.used[r]
+		if used == 0 {
+			continue
+		}
+		if top == nil || used > top.used[r] || (used == top.used[r] && c.id < top.id) {
+			top = c
+		}
+	}
+	return top
 }
 
 // Done returns a channel that is closed once the node has ended.
@@ -514,6 +601,7 @@ func (e *Engine) Reap() {
 		}
 	}
 	e.dispatch()
+	e.removeEnded(now)
 	cutoff := now.Add(-e.retention)
 	for id, t := range e.tombs {
 		if t.at.Before(cutoff) {

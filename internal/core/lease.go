@@ -17,6 +17,15 @@ type session struct {
 	done    chan struct{} // closed when the session ends; created on demand
 }
 
+// within reports whether the session's scope is n or lies beneath it.
+func (s *session) within(n *node) bool {
+	scope := s.scope
+	for scope.depth > n.depth {
+		scope = scope.parent
+	}
+	return scope == n
+}
+
 // covers reports whether n is the session's scope or lies beneath it.
 func (s *session) covers(n *node) bool {
 	for n.depth > s.scope.depth {
