@@ -234,8 +234,11 @@ attempt counts.
 
 - **Write before reply.** Every state change is committed to Postgres before the
   caller receives its answer. Changes are batched into one transaction per flush.
-- **Idempotent requests.** Every mutating request carries a request id. Repeating
-  an id returns the original result and applies nothing twice.
+- **Idempotent requests.** A request that creates a node, consumes or acquires
+  may carry a request id. The id is recorded with the change it caused, so
+  repeating it returns the original result and applies nothing twice, also after
+  a restart. A session remembers its 1,024 most recent ids. Ids sent directly
+  with an API key, as hooks do, are remembered only until the next restart.
 - **Snapshots.** Once enough events have accumulated, the whole state is saved as
   a snapshot and the events it covers are deleted, in one transaction. The time a
   restart takes therefore depends on the size of the state, not on its history.
