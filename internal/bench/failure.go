@@ -136,16 +136,19 @@ func wipe(ctx context.Context, databaseURL string) error {
 		return err
 	}
 	defer db.Close()
-	var tables int
-	query := "SELECT count(*) FROM information_schema.tables WHERE table_name IN ('events', 'session_tokens')"
-	if err := db.QueryRowContext(ctx, query).Scan(&tables); err != nil {
-		return fmt.Errorf("bench: inspect database: %w", err)
-	}
-	if tables < 2 {
-		return nil
-	}
-	if _, err := db.ExecContext(ctx, "TRUNCATE events, session_tokens"); err != nil {
-		return fmt.Errorf("bench: empty database: %w", err)
+	// A table is only there once a store has opened the database with that migration.
+	for _, table := range []string{"events", "session_tokens", "snapshot"} {
+		var exists bool
+		query := "SELECT EXISTS (SELECT 1 FROM information_schema.tables WHERE table_name = $1)"
+		if err := db.QueryRowContext(ctx, query, table).Scan(&exists); err != nil {
+			return fmt.Errorf("bench: inspect database: %w", err)
+		}
+		if !exists {
+			continue
+		}
+		if _, err := db.ExecContext(ctx, "TRUNCATE "+table); err != nil {
+			return fmt.Errorf("bench: empty %s: %w", table, err)
+		}
 	}
 	return nil
 }

@@ -21,6 +21,7 @@ const (
 	DefaultReapInterval  = time.Second
 	DefaultDrainTimeout  = 5 * time.Second
 	DefaultNodeRetention = 24 * time.Hour
+	DefaultSnapshotEvery = 10_000
 
 	DefaultAdaptiveInterval = time.Second
 	DefaultAdaptiveSamples  = 20
@@ -40,6 +41,9 @@ type Config struct {
 
 	// NodeRetention is how long an ended node stays known before it is removed.
 	NodeRetention time.Duration `yaml:"node_retention"`
+
+	// SnapshotEvery is how many events may accumulate before the state is snapshotted.
+	SnapshotEvery uint64 `yaml:"snapshot_every"`
 
 	// DrainTimeout is how long in-flight calls get to finish on shutdown.
 	DrainTimeout time.Duration `yaml:"drain_timeout"`
@@ -147,6 +151,7 @@ func Parse(data []byte) (*Config, error) {
 		ReapInterval:  DefaultReapInterval,
 		DrainTimeout:  DefaultDrainTimeout,
 		NodeRetention: DefaultNodeRetention,
+		SnapshotEvery: DefaultSnapshotEvery,
 	}
 	dec := yaml.NewDecoder(bytes.NewReader([]byte(expanded)))
 	dec.KnownFields(true)
@@ -167,6 +172,9 @@ func (c *Config) validate() error {
 	}
 	if c.ReapInterval <= 0 || c.DrainTimeout <= 0 || c.NodeRetention <= 0 {
 		return errors.New("reap_interval, drain_timeout and node_retention must be positive")
+	}
+	if c.SnapshotEvery == 0 {
+		return errors.New("snapshot_every must be positive")
 	}
 	if err := c.Root.validate(); err != nil {
 		return fmt.Errorf("root: %w", err)

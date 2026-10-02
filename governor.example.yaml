@@ -15,6 +15,10 @@ reap_interval: 1s
 # still counts against its tenant afterwards.
 node_retention: 24h
 
+# How many changes may be recorded before the whole state is saved as a snapshot.
+# A restart loads the snapshot and replays only what came after it.
+snapshot_every: 10000
+
 # Opens sessions that may act on every tenant. Leave empty to allow none.
 admin_key: ${GOVERNOR_ADMIN_KEY}
 

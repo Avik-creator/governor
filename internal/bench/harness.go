@@ -52,8 +52,10 @@ func Start(o Options) (*Harness, error) {
 		DatabaseURL:  o.DatabaseURL,
 		ReapInterval: 10 * time.Millisecond,
 		DrainTimeout: 100 * time.Millisecond,
-		Root:         o.Root,
-		Adaptive:     o.Adaptive,
+		// A small interval makes the restart scenario recover from a snapshot plus later events.
+		SnapshotEvery: 500,
+		Root:          o.Root,
+		Adaptive:      o.Adaptive,
 		Tenants: []config.Tenant{
 			{Name: "tenant-a", APIKey: KeyA, Caps: o.Tenant},
 			{Name: "tenant-b", APIKey: KeyB, Caps: o.Tenant},

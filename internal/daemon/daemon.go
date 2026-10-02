@@ -53,11 +53,13 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 
 	// Without a database nothing is recorded, so nothing survives a restart.
 	var (
-		sink   core.Sink
-		commit server.Committer             = server.NopCommitter{}
-		tokens server.TokenStore            = server.NopTokenStore{}
-		events iter.Seq2[core.Event, error] = func(func(core.Event, error) bool) {}
-		failed <-chan struct{}
+		sink     core.Sink
+		snapshot *core.Snapshot
+		save     func(context.Context, *core.Snapshot) error
+		commit   server.Committer             = server.NopCommitter{}
+		tokens   server.TokenStore            = server.NopTokenStore{}
+		events   iter.Seq2[core.Event, error] = func(func(core.Event, error) bool) {}
+		failed   <-chan struct{}
 	)
 	if cfg.DatabaseURL != "" {
 		st, err := store.Open(ctx, cfg.DatabaseURL)
@@ -70,6 +72,10 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 			}
 		})
 		sink, commit, tokens, events, failed = st, st, st, st.Events(ctx), st.Failed()
+		if snapshot, err = st.LoadSnapshot(ctx); err != nil {
+			return fail(err)
+		}
+		save = st.SaveSnapshot
 	}
 
 	tuned, err := controllers(cfg)
@@ -87,7 +93,7 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		Observer:      observer,
 		NodeRetention: cfg.NodeRetention,
 		Root:          cfg.Root.Spec(),
-	}, events)
+	}, snapshot, events)
 	if err != nil {
 		return fail(fmt.Errorf("restore: %w", err))
 	}
@@ -120,6 +126,9 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 	for _, c := range tuned {
 		go c.Run(background, engine)
 	}
+	if save != nil {
+		go snapshots(background, engine, save, cfg, snapshot)
+	}
 	served := make(chan error, 1)
 	go func() { served <- grpcServer.Serve(lis) }()
 	slog.Info("governord: serving", "addr", lis.Addr().String(), "tenants", len(cfg.Tenants),
@@ -142,6 +151,38 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		}
 	}()
 	return d, nil
+}
+
+// snapshots saves the engine's state whenever enough events have accumulated since the last snapshot.
+func snapshots(
+	ctx context.Context, engine *core.Engine, save func(context.Context, *core.Snapshot) error,
+	cfg *config.Config, loaded *core.Snapshot,
+) {
+	var last uint64
+	if loaded != nil {
+		last = loaded.Seq
+	}
+	ticker := time.NewTicker(cfg.ReapInterval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+		}
+		if engine.Seq()-last < cfg.SnapshotEvery {
+			continue
+		}
+		snap := engine.Snapshot()
+		if err := save(ctx, snap); err != nil {
+			// The events are still on record, so a failed snapshot only costs replay time.
+			if ctx.Err() == nil {
+				slog.ErrorContext(ctx, "governord: save snapshot", "err", err)
+			}
+			continue
+		}
+		last = snap.Seq
+	}
 }
 
 // drain lets in-flight calls finish, then cuts off whatever is still open.

@@ -43,6 +43,7 @@ func start(t *testing.T, databaseURL string) *instance {
 listen: %s
 database_url: %q
 reap_interval: 10ms
+snapshot_every: 4
 admin_key: admin
 root:
   limits: {db: 2, slow: 4}
@@ -203,7 +204,9 @@ func TestRunSurvivesRestart(t *testing.T) {
 	}
 	defer db.Close()
 	// The tables may not exist yet on a database no store has opened.
-	_, _ = db.ExecContext(t.Context(), "TRUNCATE events, session_tokens")
+	for _, table := range []string{"events", "session_tokens", "snapshot"} {
+		_, _ = db.ExecContext(t.Context(), "TRUNCATE "+table)
+	}
 
 	d := start(t, dsn)
 	session, err := d.client.OpenSession(as(t, "key-a"), &pb.OpenSessionRequest{})
@@ -218,6 +221,18 @@ func TestRunSurvivesRestart(t *testing.T) {
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
 	}
+	// The restart must come back from a snapshot plus the events recorded after it.
+	deadline := time.Now().Add(5 * time.Second)
+	for snapshotSeq := 0; snapshotSeq == 0; {
+		_ = db.QueryRowContext(t.Context(), "SELECT seq FROM snapshot").Scan(&snapshotSeq)
+		if time.Now().After(deadline) {
+			t.Fatal("no snapshot was saved")
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	if _, err := d.client.Consume(worker, &pb.ConsumeRequest{NodeId: tenant, Resource: "http", Amount: 1}); err != nil {
+		t.Fatalf("Consume after the snapshot: %v", err)
+	}
 	d.stop()
 
 	d = start(t, dsn)
@@ -229,9 +244,12 @@ func TestRunSurvivesRestart(t *testing.T) {
 	if again.GetScopeId() != tenant {
 		t.Errorf("tenant node = %d after the restart, want %d", again.GetScopeId(), tenant)
 	}
-	_, err = d.client.Consume(worker, &pb.ConsumeRequest{NodeId: tenant, Resource: "http", Amount: 4})
+	_, err = d.client.Consume(worker, &pb.ConsumeRequest{NodeId: tenant, Resource: "http", Amount: 3})
 	if status.Code(err) != codes.ResourceExhausted {
-		t.Errorf("Consume of 4 after 7 of 10 = %v, want ResourceExhausted", err)
+		t.Errorf("Consume of 3 after 8 of 10 = %v, want ResourceExhausted", err)
+	}
+	if _, err := d.client.Consume(worker, &pb.ConsumeRequest{NodeId: tenant, Resource: "http", Amount: 2}); err != nil {
+		t.Errorf("Consume of 2 after 8 of 10: %v", err)
 	}
 	if _, err := d.client.Validate(t.Context(), &pb.ValidateRequest{LeaseId: lease.GetLeaseId()}); err != nil {
 		t.Errorf("Validate(lease from before the restart): %v", err)
