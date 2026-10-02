@@ -123,6 +123,79 @@ The SDK fails closed. If `governord` cannot be reached, work is refused. If a
 heartbeat has not succeeded within 80% of the session's TTL, every context from
 that client is cancelled, so a paused worker cannot carry on with leases it has lost.
 
+## Governing Claude Code and Codex
+
+`governor hook` caps what an agent CLI run may do: how many tool calls it makes,
+how many subagents it uses, and for how long it may keep going. It works the same
+way in both tools, as a `PreToolUse` command hook.
+
+```sh
+go install github.com/Avik-creator/governor/cmd/governor@latest
+export GOVERNOR_API_KEY=team-a-secret      # GOVERNOR_ADDR defaults to 127.0.0.1:7600
+```
+
+Claude Code, in `~/.claude/settings.json`:
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "governor hook --source claude --tool-calls 500 --agents 10 --agent-tool-calls 100",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+Codex, in `~/.codex/hooks.json` (hooks must be enabled under `[features]` in
+`~/.codex/config.toml`):
+
+```json
+{
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "*",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "governor hook --source codex --tool-calls 500 --agents 10 --agent-tool-calls 100",
+            "timeout": 10
+          }
+        ]
+      }
+    ]
+  }
+}
+```
+
+When a budget is spent the tool is refused and the model is told why:
+
+```text
+Governor blocked this tool: the tool_calls budget of "claude:4f2a" is spent (500 of 500 used).
+Do not retry; stop and tell the user the budget is exhausted.
+```
+
+| Flag | Meaning | Default |
+| --- | --- | --- |
+| `--tool-calls` | Tool calls one run may make | no cap of its own |
+| `--agents` | Subagents one run may use | no cap of its own |
+| `--agent-tool-calls` | Tool calls each subagent may make | no cap of its own |
+| `--ttl` | How long after its first tool call a run is refused everything | 24h |
+| `--timeout` | How long to wait for `governord` before refusing | 5s |
+
+A run is one session of the CLI. The tenant's own quotas in `governor.yaml` cap all
+runs together. If `governord` is not running, tools are blocked: the hook fails
+closed. The `matcher` decides which tools count.
+
 ## What is guaranteed
 
 SPEC.md §5 states nine invariants. The headline ones:
@@ -149,6 +222,8 @@ with no replication, and that traffic is not encrypted.
 | --- | --- |
 | `*.go` (root) | The Go SDK, package `governor` |
 | `cmd/governord` | The daemon: restore, reconcile tenants, serve |
+| `cmd/governor` | The command-line client: `governor hook` |
+| `internal/hook` | The hook's logic for Claude Code and Codex |
 | `internal/core` | The in-memory engine: tree, quotas, leases, fair queue, restore |
 | `internal/server` | The gRPC service: authentication, error mapping, idempotent requests |
 | `internal/adaptive` | The controller that tunes a limit from reported latency and overload |
@@ -181,11 +256,10 @@ Measured on an Apple M1 with `go test -bench . ./internal/core`:
 ## Status
 
 Built and tested: the engine, the gRPC service, the Postgres store with restart,
-`governord` with adaptive concurrency, and the SDK.
+`governord` with adaptive concurrency, the SDK, and the hook for Claude Code and Codex.
 
 Not built yet:
 
-- the `governor hook` command that governs Claude Code through its hooks (SPEC.md §10);
 - the benchmark that compares a workload with and without Governor;
 - snapshots, so restart time does not grow with history.
 
