@@ -1,0 +1,262 @@
+[
+  {
+    "scenario": "Runaway fan-out",
+    "note": "Each task spawns 3 subtasks, 4 levels deep, and makes 3 requests. The downstream can take 10 at once. The run's budget is 150 requests.",
+    "columns": [
+      "without Governor",
+      "with Governor"
+    ],
+    "rows": [
+      {
+        "metric": "tasks that ran",
+        "values": [
+          121,
+          46
+        ]
+      },
+      {
+        "metric": "requests reaching the downstream",
+        "values": [
+          363,
+          150
+        ]
+      },
+      {
+        "metric": "requests the downstream shed (503)",
+        "values": [
+          322,
+          0
+        ]
+      },
+      {
+        "metric": "peak concurrency at the downstream",
+        "values": [
+          81,
+          6
+        ]
+      },
+      {
+        "metric": "requests refused by the budget",
+        "values": [
+          0,
+          75
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "Noisy neighbour",
+    "note": "Tenant A queues 400 jobs on a pool of 4 slots; tenant B then queues 10. Each job holds a slot for 5ms.",
+    "columns": [
+      "without Governor",
+      "with Governor"
+    ],
+    "rows": [
+      {
+        "metric": "tenant B: p95 wait for a slot (ms)",
+        "values": [
+          550.261,
+          29.264
+        ]
+      },
+      {
+        "metric": "tenant B: all jobs done after (ms)",
+        "values": [
+          555.923,
+          34.956
+        ]
+      },
+      {
+        "metric": "tenant A: all jobs done after (ms)",
+        "values": [
+          559.596,
+          606.362
+        ]
+      },
+      {
+        "metric": "jobs completed",
+        "values": [
+          410,
+          410
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "Retry storm",
+    "note": "The downstream is down. 20 operations are each wrapped in 3 retry loops of 3 attempts. The run has 20 retries to share.",
+    "columns": [
+      "without Governor",
+      "with Governor"
+    ],
+    "rows": [
+      {
+        "metric": "requests sent to the failing downstream",
+        "values": [
+          540,
+          40
+        ]
+      },
+      {
+        "metric": "requests per operation",
+        "values": [
+          27,
+          2
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "Capacity drop",
+    "note": "40 workers send requests for 6s, pausing 10ms after a failure. A third of the way in, the downstream's capacity falls from 20 to 5. Both runs are governed; only the limit differs.",
+    "columns": [
+      "fixed limit",
+      "adaptive limit"
+    ],
+    "rows": [
+      {
+        "metric": "before the drop: requests shed (%)",
+        "values": [
+          0,
+          0
+        ]
+      },
+      {
+        "metric": "last third: requests shed (%)",
+        "values": [
+          95.83082782120665,
+          33.221099887766556
+        ]
+      },
+      {
+        "metric": "last third: requests the downstream shed",
+        "values": [
+          4781,
+          296
+        ]
+      },
+      {
+        "metric": "last third: requests served",
+        "values": [
+          208,
+          595
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "Worker crash",
+    "note": "A worker takes all 4 slots of a pool and dies without releasing them. Its session lasts 1s without a heartbeat.",
+    "columns": [
+      "measured"
+    ],
+    "rows": [
+      {
+        "metric": "session TTL (ms)",
+        "values": [
+          1000
+        ]
+      },
+      {
+        "metric": "pool usable by another worker after (ms)",
+        "values": [
+          1008.975
+        ]
+      },
+      {
+        "metric": "leases the dead worker held",
+        "values": [
+          4
+        ]
+      },
+      {
+        "metric": "late releases by the dead worker that were refused",
+        "values": [
+          4
+        ]
+      },
+      {
+        "metric": "survivor's lease id is newer than every stale one (1 = yes)",
+        "values": [
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "governord restart",
+    "note": "4 workers charge one unit at a time for 3s. A third of the way in, governord is stopped and started again from Postgres.",
+    "columns": [
+      "measured"
+    ],
+    "rows": [
+      {
+        "metric": "downtime (ms)",
+        "values": [
+          120.415
+        ]
+      },
+      {
+        "metric": "charges acknowledged before the restart",
+        "values": [
+          1530
+        ]
+      },
+      {
+        "metric": "charges acknowledged in total",
+        "values": [
+          2986
+        ]
+      },
+      {
+        "metric": "charges on record after the restart",
+        "values": [
+          2986
+        ]
+      },
+      {
+        "metric": "calls refused while governord was down",
+        "values": [
+          24
+        ]
+      },
+      {
+        "metric": "session and lease still valid after the restart (1 = yes)",
+        "values": [
+          1
+        ]
+      }
+    ]
+  },
+  {
+    "scenario": "Overhead",
+    "note": "2000 calls over loopback gRPC. With Postgres, each call waits for its change to be committed.",
+    "columns": [
+      "in memory",
+      "with Postgres"
+    ],
+    "rows": [
+      {
+        "metric": "consume: time per call (µs)",
+        "values": [
+          69.996,
+          1259.63
+        ]
+      },
+      {
+        "metric": "acquire and release: time per pair (µs)",
+        "values": [
+          139.455,
+          2898.303
+        ]
+      },
+      {
+        "metric": "consume from 16 callers: calls per second",
+        "values": [
+          59290.7351733956,
+          4445.439323886377
+        ]
+      }
+    ]
+  }
+]

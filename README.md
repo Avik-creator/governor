@@ -196,6 +196,54 @@ A run is one session of the CLI. The tenant's own quotas in `governor.yaml` cap 
 runs together. If `governord` is not running, tools are blocked: the hook fails
 closed. The `matcher` decides which tools count.
 
+## Benchmark
+
+`govbench` runs the same workload with and without Governor against a simulated
+downstream service, then breaks things on purpose to show the recovery.
+
+```sh
+go run ./cmd/govbench                                   # five scenarios, no setup
+go run ./cmd/govbench -database-url "$THROWAWAY_DSN"    # adds restart and Postgres overhead
+```
+
+Results from one run on an Apple M1 (the raw output is in [docs/benchmark.txt](docs/benchmark.txt)):
+
+| Scenario | Metric | Without Governor | With Governor |
+| --- | --- | --- | --- |
+| **Runaway fan-out**: 121 tasks want 363 requests from a service that takes 10 at once | Requests sent | 363 | 150 (the budget) |
+| | Requests shed by the service | 322 | 0 |
+| | Peak concurrency at the service | 81 | 6 |
+| **Noisy neighbour**: tenant A queues 400 jobs just before tenant B queues 10 | Tenant B's p95 wait | 550 ms | 29 ms |
+| | Tenant A's finish time | 560 ms | 606 ms |
+| **Retry storm**: 20 calls, three nested retry loops, service down | Requests per call | 27 | 2 |
+
+| Scenario | Metric | Fixed limit | Adaptive limit |
+| --- | --- | --- | --- |
+| **Capacity drop**: the service's capacity falls from 20 to 5 mid-run | Requests shed afterwards | 4,781 | 296 |
+| | Requests served afterwards | 208 | 595 |
+
+| Failure | What happened |
+| --- | --- |
+| **Worker dies holding all 4 slots**, on a 1 s session | Another tenant got the pool after 1,009 ms. All 4 late releases by the dead worker were refused. |
+| **`governord` stopped and restarted mid-run** | Down for 120 ms, during which 24 calls were refused. All 2,986 acknowledged charges were on record afterwards, and the worker's session and lease were still valid. |
+
+| Overhead over loopback gRPC | In memory | With Postgres |
+| --- | --- | --- |
+| Consume, one caller | 70 µs | 1.3 ms |
+| Acquire and release, one caller | 139 µs | 2.9 ms |
+| Consume, 16 callers | 59,000 per second | 4,400 per second |
+
+How to read these:
+
+- **The downstream is simulated.** The numbers show how Governor behaves, not how a
+  production system performs.
+- **The adaptive limit still sheds some requests.** It keeps probing upward by one,
+  and each probe past the real capacity costs a few rejections.
+- **Postgres costs about a millisecond per call**, because every change is committed
+  before its reply. Concurrent callers share commits, so throughput scales better
+  than the single-caller time suggests.
+- **Timings vary between machines and runs**; the counts do not.
+
 ## What is guaranteed
 
 SPEC.md §5 states nine invariants. The headline ones:
@@ -223,6 +271,9 @@ with no replication, and that traffic is not encrypted.
 | `*.go` (root) | The Go SDK, package `governor` |
 | `cmd/governord` | The daemon: restore, reconcile tenants, serve |
 | `cmd/governor` | The command-line client: `governor hook` |
+| `cmd/govbench` | The benchmark |
+| `internal/daemon` | governord's startup, importable so the benchmark can restart it |
+| `internal/bench` | The benchmark's scenarios and simulated downstream |
 | `internal/hook` | The hook's logic for Claude Code and Codex |
 | `internal/core` | The in-memory engine: tree, quotas, leases, fair queue, restore |
 | `internal/server` | The gRPC service: authentication, error mapping, idempotent requests |
@@ -256,12 +307,14 @@ Measured on an Apple M1 with `go test -bench . ./internal/core`:
 ## Status
 
 Built and tested: the engine, the gRPC service, the Postgres store with restart,
-`governord` with adaptive concurrency, the SDK, and the hook for Claude Code and Codex.
+`governord` with adaptive concurrency, the SDK, the hook for Claude Code and Codex,
+and the benchmark.
 
 Not built yet:
 
-- the benchmark that compares a workload with and without Governor;
-- snapshots, so restart time does not grow with history.
+- snapshots, so restart time does not grow with history;
+- removing ended nodes from memory;
+- request ids that survive a restart.
 
 ## License
 
