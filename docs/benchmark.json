@@ -55,22 +55,22 @@
       {
         "metric": "tenant B: p95 wait for a slot (ms)",
         "values": [
-          550.261,
-          29.264
+          552.985,
+          27.129
         ]
       },
       {
         "metric": "tenant B: all jobs done after (ms)",
         "values": [
-          555.923,
-          34.956
+          558.659,
+          32.843
         ]
       },
       {
         "metric": "tenant A: all jobs done after (ms)",
         "values": [
-          559.596,
-          606.362
+          562.22,
+          605.936
         ]
       },
       {
@@ -124,22 +124,22 @@
       {
         "metric": "last third: requests shed (%)",
         "values": [
-          95.83082782120665,
-          33.221099887766556
+          95.90772316950853,
+          32.8125
         ]
       },
       {
         "metric": "last third: requests the downstream shed",
         "values": [
           4781,
-          296
+          294
         ]
       },
       {
         "metric": "last third: requests served",
         "values": [
-          208,
-          595
+          204,
+          602
         ]
       }
     ]
@@ -160,7 +160,7 @@
       {
         "metric": "pool usable by another worker after (ms)",
         "values": [
-          1008.975
+          1009.105
         ]
       },
       {
@@ -193,25 +193,25 @@
       {
         "metric": "downtime (ms)",
         "values": [
-          120.415
+          124.864
         ]
       },
       {
         "metric": "charges acknowledged before the restart",
         "values": [
-          1530
+          994
         ]
       },
       {
         "metric": "charges acknowledged in total",
         "values": [
-          2986
+          2236
         ]
       },
       {
         "metric": "charges on record after the restart",
         "values": [
-          2986
+          2236
         ]
       },
       {
@@ -239,22 +239,22 @@
       {
         "metric": "consume: time per call (µs)",
         "values": [
-          69.996,
-          1259.63
+          95.6855,
+          1223.0415
         ]
       },
       {
         "metric": "acquire and release: time per pair (µs)",
         "values": [
-          139.455,
-          2898.303
+          173.2085,
+          2597.246
         ]
       },
       {
         "metric": "consume from 16 callers: calls per second",
         "values": [
-          59290.7351733956,
-          4445.439323886377
+          66360.57849834306,
+          6611.807027125702
         ]
       }
     ]

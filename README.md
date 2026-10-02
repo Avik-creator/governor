@@ -466,32 +466,32 @@ go run ./cmd/govbench                                   # five scenarios, no set
 go run ./cmd/govbench -database-url "$THROWAWAY_DSN"    # adds restart and Postgres overhead
 ```
 
-Results from one run on an Apple M1 (the raw output is in [docs/benchmark.txt](docs/benchmark.txt)):
+Results from the middle one of three runs on an Apple M1 (the raw output is in [docs/benchmark.txt](docs/benchmark.txt)):
 
 | Scenario | Metric | Without Governor | With Governor |
 | --- | --- | --- | --- |
 | **Runaway fan-out**: 121 tasks want 363 requests from a service that takes 10 at once | Requests sent | 363 | 150 (the budget) |
 | | Requests shed by the service | 322 | 0 |
 | | Peak concurrency at the service | 81 | 6 |
-| **Noisy neighbour**: tenant A queues 400 jobs just before tenant B queues 10 | Tenant B's p95 wait | 550 ms | 29 ms |
-| | Tenant A's finish time | 560 ms | 606 ms |
+| **Noisy neighbour**: tenant A queues 400 jobs just before tenant B queues 10 | Tenant B's p95 wait | 553 ms | 27 ms |
+| | Tenant A's finish time | 562 ms | 606 ms |
 | **Retry storm**: 20 calls, three nested retry loops, service down | Requests per call | 27 | 2 |
 
 | Scenario | Metric | Fixed limit | Adaptive limit |
 | --- | --- | --- | --- |
-| **Capacity drop**: the service's capacity falls from 20 to 5 mid-run | Requests shed afterwards | 4,781 | 296 |
-| | Requests served afterwards | 208 | 595 |
+| **Capacity drop**: the service's capacity falls from 20 to 5 mid-run | Requests shed afterwards | 4,781 | 294 |
+| | Requests served afterwards | 204 | 602 |
 
 | Failure | What happened |
 | --- | --- |
 | **Worker dies holding all 4 slots**, on a 1 s session | Another tenant got the pool after 1,009 ms. All 4 late releases by the dead worker were refused. |
-| **`governord` stopped and restarted mid-run** | Down for 120 ms, during which 24 calls were refused. All 2,986 acknowledged charges were on record afterwards, and the worker's session and lease were still valid. |
+| **`governord` stopped and restarted mid-run** | Down for 125 ms, during which 24 calls were refused. All 2,236 acknowledged charges were on record afterwards, and the worker's session and lease were still valid. |
 
 | Overhead over loopback gRPC | In memory | With Postgres |
 | --- | --- | --- |
-| Consume, one caller | 70 µs | 1.3 ms |
-| Acquire and release, one caller | 139 µs | 2.9 ms |
-| Consume, 16 callers | 59,000 per second | 4,400 per second |
+| Consume, one caller | 96 µs | 1.2 ms |
+| Acquire and release, one caller | 173 µs | 2.6 ms |
+| Consume, 16 callers | 66,000 per second | 6,600 per second |
 
 How to read these:
 
@@ -503,8 +503,9 @@ How to read these:
   before its reply. Concurrent callers share commits, so throughput scales better
   than the single-caller time suggests.
 - **Timings vary between machines and runs**, and a busy machine makes them several
-  times worse; the counts do not. These were measured on an idle machine, before
-  snapshots and durable request ids were added.
+  times worse; the counts do not. Of three runs, the one shown is the middle one by
+  durable throughput (the last row above), which ranged from 3,600 to 7,200 per
+  second on a machine that was also running Docker.
 - **A call in flight when `governord` stops can be on record without having been
   acknowledged.** It is never the other way round: nothing a worker was told
   succeeded is lost.
@@ -599,7 +600,7 @@ nothing to roll back. One event records the whole charge.
 This works because a limit is a cap and not a reservation: creating a child sets
 nothing aside, so there is no balance to move between nodes and no transaction
 across them. The cost is that every operation in the process goes through one
-lock. A consume takes about 330 ns on eight cores, which is far below the cost of
+lock. A consume takes about 390 ns on eight cores, which is far below the cost of
 the network call and the commit around it, so the simpler design was chosen over
 per-node locking.
 
@@ -662,9 +663,9 @@ Measured on an Apple M1 with `go test -bench . ./internal/core`:
 
 | Operation | Time |
 | --- | --- |
-| Consume, 8 cores | 327 ns |
-| Acquire and release, uncontended | 607 ns |
-| Acquire and release, queued behind 2 slots | 1.3 µs |
+| Consume, 8 cores | 389 ns |
+| Acquire and release, uncontended | 686 ns |
+| Acquire and release, queued behind 2 slots | 1.4 µs |
 
 ## Status
 
