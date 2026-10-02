@@ -155,15 +155,15 @@ Claude Code, in `~/.claude/settings.json`:
 }
 ```
 
-Codex, in `~/.codex/hooks.json` (hooks must be enabled under `[features]` in
-`~/.codex/config.toml`):
+Codex, in `~/.codex/hooks.json`. Codex asks you to review and trust a new hook
+before it runs it:
 
 ```json
 {
   "hooks": {
     "PreToolUse": [
       {
-        "matcher": "*",
+        "matcher": ".*",
         "hooks": [
           {
             "type": "command",
@@ -195,6 +195,14 @@ Do not retry; stop and tell the user the budget is exhausted.
 A run is one session of the CLI. The tenant's own quotas in `governor.yaml` cap all
 runs together. If `governord` is not running, tools are blocked: the hook fails
 closed. The `matcher` decides which tools count.
+
+Resuming a session continues its run, because both CLIs give a resumed session the
+same id; forking one, or starting a new one, begins a new run. A session resumed
+after its `--ttl` stays blocked, so set `--ttl` to the longest you expect to keep
+resuming a session.
+
+Checked with Claude Code 2.1.285 and Codex 0.151.0: in both, the first command ran
+and the second was refused with the budget message when the budget was one tool call.
 
 ## Benchmark
 
