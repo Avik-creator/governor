@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"net"
+	"sync"
 	"testing"
 	"time"
 
@@ -26,6 +27,25 @@ type backend struct {
 	tenant core.NodeID
 	grpc   *grpc.Server
 	lis    *bufconn.Listener
+
+	mu       sync.Mutex
+	observer func(core.Class, core.Report)
+}
+
+// observe sets the function that sees the report of every released lease.
+func (b *backend) observe(fn func(core.Class, core.Report)) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.observer = fn
+}
+
+func (b *backend) report(class core.Class, r core.Report) {
+	b.mu.Lock()
+	fn := b.observer
+	b.mu.Unlock()
+	if fn != nil {
+		fn(class, r)
+	}
 }
 
 // newBackend starts a server with one tenant whose key is testKey.
@@ -33,7 +53,7 @@ func newBackend(t *testing.T, root, tenant core.Spec) *backend {
 	t.Helper()
 	b := &backend{t: t, lis: bufconn.Listen(1 << 20)}
 	var err error
-	if b.engine, err = core.New(core.Config{Root: root}); err != nil {
+	if b.engine, err = core.New(core.Config{Root: root, Observer: b.report}); err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
 	setup, _, _, err := b.engine.OpenSession(core.RootID, 0)
