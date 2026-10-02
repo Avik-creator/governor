@@ -78,8 +78,9 @@ func TestRetry(t *testing.T) {
 }
 
 func TestAdaptive(t *testing.T) {
+	// Enough workers to keep the fixed limit full even while the ones that failed back off.
 	r, err := Adaptive(t.Context(), AdaptiveParams{
-		Workers: 20, Duration: 1500 * time.Millisecond, Before: 10, After: 3,
+		Workers: 40, Duration: 1500 * time.Millisecond, Before: 10, After: 3,
 		Latency: 5 * time.Millisecond, Backoff: 10 * time.Millisecond,
 	})
 	if err != nil {
