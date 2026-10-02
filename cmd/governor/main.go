@@ -10,9 +10,14 @@ import (
 	"os"
 	"time"
 
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
+	"google.golang.org/grpc/credentials/insecure"
+
 	"github.com/Avik-creator/governor"
 	"github.com/Avik-creator/governor/internal/config"
 	"github.com/Avik-creator/governor/internal/hook"
+	"github.com/Avik-creator/governor/internal/transport"
 	"github.com/Avik-creator/governor/internal/tui"
 )
 
@@ -34,7 +39,8 @@ tool may run. Install it as a PreToolUse command hook.
 ui shows the tasks governord knows, with what they have used, and changes their
 caps and the defaults new tasks start with.
 
-Both read GOVERNOR_ADDR and GOVERNOR_API_KEY from the environment.
+Both read GOVERNOR_ADDR and GOVERNOR_API_KEY from the environment. If governord
+serves TLS, set GOVERNOR_TLS=1, or GOVERNOR_CA_FILE to the certificate to trust.
 `
 
 func main() {
@@ -54,6 +60,7 @@ func run(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer, 
 	if addr := getenv(governor.EnvAddr); addr != "" {
 		cfg.Addr = addr
 	}
+	cfg.Credentials = func() (credentials.TransportCredentials, error) { return transport.FromEnv(getenv) }
 	flags := flag.NewFlagSet("governor hook", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&cfg.Source, "source", "agent", "name of the CLI being governed, such as claude or codex")
@@ -93,15 +100,17 @@ func runUI(ctx context.Context, args []string, stderr io.Writer, getenv func(str
 	if env := getenv(governor.EnvAddr); env != "" {
 		addr = env
 	}
+	creds, err := transport.FromEnv(getenv)
 	if *path != "" {
-		var err error
-		if addr, key, err = fromConfig(*path); err != nil {
-			fmt.Fprintln(stderr, "governor ui:", err)
-			return exitFailed
-		}
+		addr, key, creds, err = fromConfig(*path)
+	}
+	if err != nil {
+		fmt.Fprintln(stderr, "governor ui:", err)
+		return exitFailed
 	}
 	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
-	client, err := governor.Dial(dialCtx, governor.WithAddr(addr), governor.WithAPIKey(key))
+	client, err := governor.Dial(dialCtx, governor.WithAddr(addr), governor.WithAPIKey(key),
+		governor.WithDialOptions(grpc.WithTransportCredentials(creds)))
 	cancel()
 	if err != nil {
 		fmt.Fprintf(stderr, "governor ui: governord at %s: %v\n", addr, err)
@@ -115,18 +124,26 @@ func runUI(ctx context.Context, args []string, stderr io.Writer, getenv func(str
 	return 0
 }
 
-// fromConfig takes governord's address and the key that sees the most from its configuration file.
-func fromConfig(path string) (addr, key string, err error) {
+// fromConfig takes governord's address, the key that sees the most and how to trust it from its configuration file.
+func fromConfig(path string) (addr, key string, creds credentials.TransportCredentials, err error) {
 	cfg, err := config.Load(path)
 	if err != nil {
-		return "", "", err
+		return "", "", nil, err
 	}
 	switch {
 	case cfg.AdminKey != "":
-		return cfg.Listen, cfg.AdminKey, nil
+		key = cfg.AdminKey
 	case len(cfg.Tenants) == 1:
-		return cfg.Listen, cfg.Tenants[0].APIKey, nil
+		key = cfg.Tenants[0].APIKey
 	default:
-		return "", "", fmt.Errorf("%s has no admin_key and not exactly one tenant; set %s instead", path, governor.EnvAPIKey)
+		return "", "", nil, fmt.Errorf("%s has no admin_key and not exactly one tenant; set %s instead", path, governor.EnvAPIKey)
 	}
+	creds = insecure.NewCredentials()
+	if cfg.TLS != nil {
+		// The certificate governord presents is the one to trust, whoever signed it.
+		if creds, err = transport.Trusting(cfg.TLS.CertFile); err != nil {
+			return "", "", nil, fmt.Errorf("tls: %w", err)
+		}
+	}
+	return cfg.Listen, key, creds, nil
 }

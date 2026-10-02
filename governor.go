@@ -3,17 +3,19 @@ package governor
 
 import (
 	"context"
+	"crypto/tls"
 	"fmt"
 	"os"
 	"sync"
 	"time"
 
 	"google.golang.org/grpc"
-	"google.golang.org/grpc/credentials/insecure"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/durationpb"
 
 	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
+	secure "github.com/Avik-creator/governor/internal/transport"
 )
 
 // Environment variables that Dial reads unless an option overrides them.
@@ -21,6 +23,12 @@ const (
 	EnvAddr       = "GOVERNOR_ADDR"
 	EnvAPIKey     = "GOVERNOR_API_KEY"
 	EnvSessionTTL = "GOVERNOR_SESSION_TTL"
+
+	// EnvTLS turns TLS on when true; governord is then checked against the system's roots.
+	EnvTLS = secure.EnvTLS
+
+	// EnvCAFile names a PEM file of the only certificates to trust, and turns TLS on.
+	EnvCAFile = secure.EnvCAFile
 )
 
 // Defaults used when neither an option nor the environment gives a value.
@@ -37,6 +45,7 @@ type options struct {
 	addr   string
 	apiKey string
 	ttl    time.Duration
+	creds  credentials.TransportCredentials // nil leaves the choice to the environment
 	dial   []grpc.DialOption
 }
 
@@ -58,7 +67,12 @@ func WithSessionTTL(ttl time.Duration) Option {
 	return func(o *options) { o.ttl = ttl }
 }
 
-// WithDialOptions adds gRPC dial options, such as transport credentials.
+// WithTLS connects over TLS as cfg describes instead of reading GOVERNOR_TLS; nil trusts the system's roots.
+func WithTLS(cfg *tls.Config) Option {
+	return func(o *options) { o.creds = credentials.NewTLS(cfg) }
+}
+
+// WithDialOptions adds gRPC dial options, which come after the client's own and so override them.
 func WithDialOptions(opts ...grpc.DialOption) Option {
 	return func(o *options) { o.dial = append(o.dial, opts...) }
 }
@@ -111,7 +125,12 @@ func Dial(ctx context.Context, opts ...Option) (*Client, error) {
 		return nil, fmt.Errorf("%w: session TTL is negative", ErrInvalid)
 	}
 
-	dial := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, o.dial...)
+	if o.creds == nil {
+		if o.creds, err = secure.FromEnv(os.Getenv); err != nil {
+			return nil, fmt.Errorf("%w: %v", ErrInvalid, err)
+		}
+	}
+	dial := append([]grpc.DialOption{grpc.WithTransportCredentials(o.creds)}, o.dial...)
 	conn, err := grpc.NewClient(o.addr, dial...)
 	if err != nil {
 		return nil, fmt.Errorf("%w: %v", ErrUnavailable, err)

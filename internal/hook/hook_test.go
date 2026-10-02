@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 
 	"github.com/Avik-creator/governor/internal/core"
 	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
@@ -274,6 +275,9 @@ func TestRunFailsClosed(t *testing.T) {
 		{"no session id", func(*Config) {}, input(preToolUse, "", "tool-0", ""), "no session_id"},
 		{"no API key", func(c *Config) { c.APIKey = "" }, input(preToolUse, "s1", "tool-0", ""), "no API key"},
 		{"wrong API key", func(c *Config) { c.APIKey = "nope" }, input(preToolUse, "s1", "tool-0", ""), "does not accept"},
+		{"unreadable TLS settings", func(c *Config) {
+			c.Credentials = func() (credentials.TransportCredentials, error) { return nil, errors.New("no such file") }
+		}, input(preToolUse, "s1", "tool-0", ""), "TLS settings"},
 		{"governord unreachable", func(c *Config) { c.Addr, c.Timeout = "127.0.0.1:1", time.Second },
 			input(preToolUse, "s1", "tool-0", ""), "gave no answer"},
 	}

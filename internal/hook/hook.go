@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
@@ -51,7 +52,10 @@ type Config struct {
 	// Timeout bounds the whole invocation, so the hook answers before the CLI gives up on it.
 	Timeout time.Duration
 
-	// Dial adds gRPC dial options, such as transport credentials.
+	// Credentials secures the connection; nil connects in plain text.
+	Credentials func() (credentials.TransportCredentials, error)
+
+	// Dial adds gRPC dial options, such as a dialer for tests.
 	Dial []grpc.DialOption
 }
 
@@ -95,7 +99,15 @@ func Run(ctx context.Context, cfg Config, stdin io.Reader) error {
 
 	ctx, cancel := context.WithTimeout(ctx, cfg.Timeout)
 	defer cancel()
-	dial := append([]grpc.DialOption{grpc.WithTransportCredentials(insecure.NewCredentials())}, cfg.Dial...)
+	creds := insecure.NewCredentials()
+	if cfg.Credentials != nil {
+		var err error
+		// Settings that cannot be read must not fall back to plain text, which would send the key in the clear.
+		if creds, err = cfg.Credentials(); err != nil {
+			return blocked("the TLS settings of the hook are wrong (%v).", err)
+		}
+	}
+	dial := append([]grpc.DialOption{grpc.WithTransportCredentials(creds)}, cfg.Dial...)
 	conn, err := grpc.NewClient(cfg.Addr, dial...)
 	if err != nil {
 		return unreachable(cfg.Addr, err)

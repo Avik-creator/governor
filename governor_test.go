@@ -2,8 +2,11 @@ package governor
 
 import (
 	"context"
+	"crypto/tls"
+	"crypto/x509"
 	"errors"
 	"net"
+	"os"
 	"sync"
 	"testing"
 	"time"
@@ -13,8 +16,10 @@ import (
 
 	"github.com/Avik-creator/governor/internal/config"
 	"github.com/Avik-creator/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/daemon"
 	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 	"github.com/Avik-creator/governor/internal/server"
+	"github.com/Avik-creator/governor/internal/transport/certtest"
 )
 
 const testKey = "key-tenant"
@@ -189,6 +194,63 @@ func TestDialReadsEnvironment(t *testing.T) {
 		t.Fatalf("Dial with WithAPIKey: %v", err)
 	}
 	_ = c2.Close()
+}
+
+func TestDialTLS(t *testing.T) {
+	certFile, keyFile := certtest.SelfSigned(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	d, err := daemon.Start(ctx, &config.Config{
+		Listen:        "127.0.0.1:0",
+		TLS:           &config.TLS{CertFile: certFile, KeyFile: keyFile},
+		ReapInterval:  config.DefaultReapInterval,
+		DrainTimeout:  config.DefaultDrainTimeout,
+		NodeRetention: config.DefaultNodeRetention,
+		SnapshotEvery: config.DefaultSnapshotEvery,
+		Tenants:       []config.Tenant{{Name: "a", APIKey: testKey}},
+	})
+	if err != nil {
+		cancel()
+		t.Fatalf("daemon.Start: %v", err)
+	}
+	t.Cleanup(func() {
+		cancel()
+		_ = d.Wait()
+	})
+	pem, err := os.ReadFile(certFile)
+	if err != nil {
+		t.Fatalf("ReadFile: %v", err)
+	}
+	roots := x509.NewCertPool()
+	roots.AppendCertsFromPEM(pem)
+	otherCert, _ := certtest.SelfSigned(t)
+
+	tests := []struct {
+		name string
+		env  map[string]string
+		opts []Option
+		want error
+	}{
+		{"the CA file from the environment", map[string]string{EnvCAFile: certFile}, nil, nil},
+		{"WithTLS", nil, []Option{WithTLS(&tls.Config{RootCAs: roots})}, nil},
+		{"WithTLS beats the environment", map[string]string{EnvTLS: "maybe"}, []Option{WithTLS(&tls.Config{RootCAs: roots})}, nil},
+		{"plain text", nil, nil, ErrUnavailable},
+		{"the system's roots", map[string]string{EnvTLS: "1"}, nil, ErrUnavailable},
+		{"another certificate", map[string]string{EnvCAFile: otherCert}, nil, ErrUnavailable},
+		{"settings that cannot be read", map[string]string{EnvTLS: "maybe"}, nil, ErrInvalid},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Setenv(EnvTLS, tc.env[EnvTLS])
+			t.Setenv(EnvCAFile, tc.env[EnvCAFile])
+			c, err := Dial(t.Context(), append([]Option{WithAddr(d.Addr()), WithAPIKey(testKey)}, tc.opts...)...)
+			if !errors.Is(err, tc.want) {
+				t.Fatalf("Dial = %v, want %v", err, tc.want)
+			}
+			if c != nil {
+				_ = c.Close()
+			}
+		})
+	}
 }
 
 func TestDialRejects(t *testing.T) {
