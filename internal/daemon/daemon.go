@@ -8,6 +8,7 @@ import (
 	"iter"
 	"log/slog"
 	"net"
+	"net/http"
 	"time"
 
 	"google.golang.org/grpc"
@@ -15,20 +16,27 @@ import (
 	"github.com/Avik-creator/governor/internal/config"
 	"github.com/Avik-creator/governor/internal/core"
 	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
+	"github.com/Avik-creator/governor/internal/metrics"
 	"github.com/Avik-creator/governor/internal/server"
 	"github.com/Avik-creator/governor/internal/store"
 )
 
 // Daemon is a governord that is serving; it stops when the context given to Start is done.
 type Daemon struct {
-	addr string
-	done chan struct{} // closed once the daemon has stopped and released everything
-	err  error
+	addr    string
+	metrics string        // address the metrics are served on; empty if they are not
+	done    chan struct{} // closed once the daemon has stopped and released everything
+	err     error
 }
 
 // Addr returns the address the daemon listens on.
 func (d *Daemon) Addr() string {
 	return d.addr
+}
+
+// MetricsAddr returns the address the metrics are served on, or "" if they are not.
+func (d *Daemon) MetricsAddr() string {
+	return d.metrics
 }
 
 // Wait blocks until the daemon has stopped; it returns nil if the context ended it.
@@ -51,6 +59,7 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		return nil, err
 	}
 
+	meter := metrics.New()
 	// Without a database nothing is recorded, so nothing survives a restart.
 	var (
 		sink     core.Sink
@@ -62,7 +71,7 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		failed   <-chan struct{}
 	)
 	if cfg.DatabaseURL != "" {
-		st, err := store.Open(ctx, cfg.DatabaseURL)
+		st, err := store.Open(ctx, cfg.DatabaseURL, store.WithCommitObserver(meter.ObserveCommit))
 		if err != nil {
 			return nil, err
 		}
@@ -89,7 +98,7 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		}
 	}
 	engine, err := core.Restore(core.Config{
-		Sink:          sink,
+		Sink:          meter.Sink(sink),
 		Observer:      observer,
 		NodeRetention: cfg.NodeRetention,
 		Root:          cfg.Root.Spec(),
@@ -114,9 +123,15 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 	if err != nil {
 		return fail(fmt.Errorf("listen: %w", err))
 	}
+	opened = append(opened, func() { _ = lis.Close() })
+	metricsAddr, err := serveMetrics(cfg.MetricsListen, meter, engine, &opened)
+	if err != nil {
+		return fail(err)
+	}
+	// The metrics go first, so they see the status each call ends with.
 	grpcServer := grpc.NewServer(
-		grpc.UnaryInterceptor(srv.UnaryInterceptor),
-		grpc.StreamInterceptor(srv.StreamInterceptor),
+		grpc.ChainUnaryInterceptor(meter.UnaryInterceptor, srv.UnaryInterceptor),
+		grpc.ChainStreamInterceptor(meter.StreamInterceptor, srv.StreamInterceptor),
 	)
 	pb.RegisterGovernorServiceServer(grpcServer, srv)
 
@@ -132,9 +147,9 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 	served := make(chan error, 1)
 	go func() { served <- grpcServer.Serve(lis) }()
 	slog.Info("governord: serving", "addr", lis.Addr().String(), "tenants", len(cfg.Tenants),
-		"durable", cfg.DatabaseURL != "", "adaptive", len(tuned))
+		"durable", cfg.DatabaseURL != "", "adaptive", len(tuned), "metrics", metricsAddr)
 
-	d := &Daemon{addr: lis.Addr().String(), done: make(chan struct{})}
+	d := &Daemon{addr: lis.Addr().String(), metrics: metricsAddr, done: make(chan struct{})}
 	go func() {
 		defer close(d.done)
 		defer closeAll()
@@ -151,6 +166,39 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		}
 	}()
 	return d, nil
+}
+
+// metricsTimeout bounds reading a scrape's request and finishing the scrapes in flight at shutdown.
+const metricsTimeout = 5 * time.Second
+
+// serveMetrics serves the metrics over HTTP at addr and returns where; an empty addr serves nothing.
+func serveMetrics(addr string, meter *metrics.Metrics, engine *core.Engine, opened *[]func()) (string, error) {
+	if addr == "" {
+		return "", nil
+	}
+	if err := meter.Watch(engine); err != nil {
+		return "", err
+	}
+	lis, err := net.Listen("tcp", addr)
+	if err != nil {
+		return "", fmt.Errorf("listen for metrics: %w", err)
+	}
+	mux := http.NewServeMux()
+	mux.Handle("GET /metrics", meter.Handler())
+	srv := &http.Server{Handler: mux, ReadHeaderTimeout: metricsTimeout}
+	go func() {
+		if err := srv.Serve(lis); !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("governord: serve metrics", "err", err)
+		}
+	}()
+	*opened = append(*opened, func() {
+		ctx, cancel := context.WithTimeout(context.Background(), metricsTimeout)
+		defer cancel()
+		if err := srv.Shutdown(ctx); err != nil {
+			slog.Error("governord: stop metrics", "err", err)
+		}
+	})
+	return lis.Addr().String(), nil
 }
 
 // snapshots saves the engine's state whenever enough events have accumulated since the last snapshot.

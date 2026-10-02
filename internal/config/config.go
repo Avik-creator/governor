@@ -33,6 +33,9 @@ type Config struct {
 	// Listen is the address the gRPC server binds to.
 	Listen string `yaml:"listen"`
 
+	// MetricsListen is the address Prometheus metrics are served on over HTTP; empty serves none.
+	MetricsListen string `yaml:"metrics_listen"`
+
 	// DatabaseURL is the Postgres, or the "sqlite:" file, to record to; empty keeps everything in memory.
 	DatabaseURL string `yaml:"database_url"`
 

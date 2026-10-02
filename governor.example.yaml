@@ -4,6 +4,11 @@
 
 listen: 127.0.0.1:7600
 
+# Where Prometheus metrics are served over HTTP, at /metrics. Leave empty to
+# serve none. Anyone who can reach this address can read the tenants' names and
+# usage, so keep it on a private interface.
+metrics_listen: 127.0.0.1:7601
+
 # Where the durable record is kept. A postgres:// URL names a Postgres, which is
 # the choice when governord serves several machines. "sqlite:" followed by a
 # path names a file, which is enough for one machine. Leave empty to keep
