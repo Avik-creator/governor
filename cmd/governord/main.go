@@ -72,7 +72,17 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 		}
 	}()
 
-	engine, err := core.Restore(core.Config{Sink: sink, Root: cfg.Root.Spec()}, events)
+	tuned, err := controllers(cfg)
+	if err != nil {
+		return err
+	}
+	// Each released lease reports to the controller of its class, if it has one.
+	observer := func(class core.Class, r core.Report) {
+		if c := tuned[class]; c != nil {
+			c.Observe(r)
+		}
+	}
+	engine, err := core.Restore(core.Config{Sink: sink, Observer: observer, Root: cfg.Root.Spec()}, events)
 	if err != nil {
 		return fmt.Errorf("restore: %w", err)
 	}
@@ -102,11 +112,14 @@ func run(ctx context.Context, args []string, stderr io.Writer) error {
 	reaping, stopReaper := context.WithCancel(context.Background())
 	defer stopReaper()
 	go engine.Run(reaping, cfg.ReapInterval)
+	for _, c := range tuned {
+		go c.Run(reaping, engine)
+	}
 
 	served := make(chan error, 1)
 	go func() { served <- grpcServer.Serve(lis) }()
 	slog.Info("governord: serving", "addr", lis.Addr().String(), "tenants", len(cfg.Tenants),
-		"durable", cfg.DatabaseURL != "")
+		"durable", cfg.DatabaseURL != "", "adaptive", len(tuned))
 
 	select {
 	case <-ctx.Done():

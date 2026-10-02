@@ -117,7 +117,14 @@ database_url: %q
 reap_interval: 10ms
 admin_key: admin
 root:
-  limits: {db: 2}
+  limits: {db: 2, slow: 4}
+adaptive:
+  - class: slow
+    target_p95: 10ms
+    min_limit: 1
+    max_limit: 4
+    interval: 10ms
+    min_samples: 1
 tenants:
   - name: team-a
     api_key: key-a
@@ -218,6 +225,40 @@ func TestRunServes(t *testing.T) {
 	_, err = d.client.Heartbeat(as(t, short.GetSessionToken()), &pb.HeartbeatRequest{})
 	if status.Code(err) != codes.Unauthenticated {
 		t.Errorf("Heartbeat after the ttl = %v, want Unauthenticated", err)
+	}
+
+	// The adaptive controller cuts the limit of a class whose leases report slow work.
+	worker := as(t, a.GetSessionToken())
+	hold := func(ctx context.Context) (*pb.AcquireResponse, error) {
+		return d.client.Acquire(ctx, &pb.AcquireRequest{NodeId: a.GetScopeId(), Class: "slow"})
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for {
+		first, err := hold(worker)
+		if err != nil {
+			t.Fatalf("Acquire: %v", err)
+		}
+		// With the limit down to one, a second lease cannot be had while the first is held.
+		short, cancel := context.WithTimeout(worker, 30*time.Millisecond)
+		second, err := hold(short)
+		cancel()
+		release := &pb.ReleaseRequest{LeaseId: first.GetLeaseId(), Latency: durationpb.New(time.Second)}
+		if _, relErr := d.client.Release(worker, release); relErr != nil {
+			t.Fatalf("Release: %v", relErr)
+		}
+		if status.Code(err) == codes.DeadlineExceeded {
+			break
+		}
+		if err != nil {
+			t.Fatalf("second Acquire: %v", err)
+		}
+		release = &pb.ReleaseRequest{LeaseId: second.GetLeaseId(), Latency: durationpb.New(time.Second)}
+		if _, err := d.client.Release(worker, release); err != nil {
+			t.Fatalf("Release: %v", err)
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("the slow class still admits two leases at once")
+		}
 	}
 
 	d.stop()
