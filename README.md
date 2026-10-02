@@ -22,6 +22,7 @@ The same clip in full quality: [docs/governor.mp4](docs/governor.mp4).*
 The exact semantics are in [SPEC.md](SPEC.md), which is the contract the tests check.
 
 **Contents:** [How it works](#how-it-works) ·
+[Architecture](#architecture) ·
 [Quick start](#quick-start) ·
 [Using the SDK](#using-the-sdk) ·
 [Governing Claude Code and Codex](#governing-claude-code-and-codex) ·
@@ -67,6 +68,73 @@ org (root)                    limits here are the shared pools: db, http, agents
   the caller gets its reply, in batches. A restart rebuilds the tree from the
   newest snapshot and the changes recorded after it, and a request retried across
   the restart is not applied twice.
+
+## Architecture
+
+```mermaid
+flowchart LR
+    subgraph clients["Clients"]
+        sdk["Go SDK<br/>inside each worker"]
+        hook["governor hook<br/>Claude Code, Codex"]
+        ui["governor ui<br/>terminal screen"]
+    end
+
+    subgraph daemon["governord"]
+        direction TB
+        server["gRPC service<br/>API keys, sessions, request ids"]
+        engine["Engine: in memory, one lock<br/>tree, quotas, leases, fair queue"]
+        writer["Store writer<br/>group commit"]
+        adaptive["Adaptive controller"]
+        reaper["Reaper<br/>TTLs and deadlines"]
+        metrics["Metrics endpoint"]
+
+        server -- "1. check and apply" --> engine
+        engine -- "2. event" --> writer
+        writer -. "3. committed, then reply" .-> server
+        adaptive <-- "reports in, new limit out" --> engine
+        reaper -- "expire" --> engine
+        metrics -. "reads on scrape" .-> engine
+    end
+
+    config[/"governor.yaml<br/>pools, tenants, defaults"/]
+    db[("Postgres or SQLite<br/>events, snapshots, token hashes")]
+    prom["Prometheus"]
+    grafana["Grafana"]
+    downstream["Downstream service<br/>database, API"]
+
+    sdk -- "gRPC :7600" --> server
+    hook -- "gRPC :7600" --> server
+    ui -- "gRPC :7600" --> server
+    config -. "read at start" .-> engine
+    writer --> db
+    db -. "replayed at start" .-> engine
+    prom -- "HTTP :7601" --> metrics
+    grafana --> prom
+    sdk -- "the work, fenced by the lease id" --> downstream
+```
+
+`governord` is the only authority and it never touches the work: workers ask it,
+then call the downstream service themselves.
+
+| Part | Package | What it does |
+| --- | --- | --- |
+| Clients | root package, `cmd/governor` | The SDK carries the task in a `context.Context`, heartbeats its session and fails closed. The hook and the terminal screen use the same API. |
+| gRPC service | `internal/server` | Maps an API key to a tenant, a token to a session, and a repeated request id to its first answer. |
+| Engine | `internal/core` | The tree and every rule about it. One lock, so each operation is checked on its whole chain and applied as one step. |
+| Store writer | `internal/store` | Commits the engine's events in batches. A reply waits for the commit that contains its event. |
+| Adaptive controller | `internal/adaptive` | Reads the latency and overload reported with each release and moves a pool's limit. |
+| Reaper | `internal/core` | Ends expired sessions, leases and tasks on a timer, and hands the freed capacity to waiters. |
+| Metrics endpoint | `internal/metrics` | Serves counters for calls, events and commits, and reads the tree when Prometheus scrapes. |
+
+The numbered arrows are the path of every call that changes something:
+
+1. The service authenticates the call, and the engine checks it against the whole
+   chain and applies it in memory.
+2. The change leaves the engine as an event with a sequence number.
+3. The writer commits it, and only then does the caller get its reply.
+
+At start the order is reversed: `governord` loads the newest snapshot, replays the
+events recorded after it, applies `governor.yaml`, and then begins to serve.
 
 ## Quick start
 
