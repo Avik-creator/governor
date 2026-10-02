@@ -42,7 +42,9 @@ org (root)                    limits here are the shared pools: db, http, agents
 - **Limits can adapt.** A controller raises a pool's limit by one while its
   downstream is healthy and cuts it to 70% when latency or overload rises.
 - **Postgres is the durable record.** Every change is committed before the caller
-  gets its reply, in batches, and a restart rebuilds the tree by replaying it.
+  gets its reply, in batches. A restart rebuilds the tree from the newest snapshot
+  and the changes recorded after it, and a request retried across the restart is
+  not applied twice.
 
 ## Quick start
 
@@ -250,7 +252,12 @@ How to read these:
 - **Postgres costs about a millisecond per call**, because every change is committed
   before its reply. Concurrent callers share commits, so throughput scales better
   than the single-caller time suggests.
-- **Timings vary between machines and runs**; the counts do not.
+- **Timings vary between machines and runs**, and a busy machine makes them several
+  times worse; the counts do not. These were measured on an idle machine, before
+  snapshots and durable request ids were added.
+- **A call in flight when `governord` stops can be on record without having been
+  acknowledged.** It is never the other way round: nothing a worker was told
+  succeeded is lost.
 
 ## What is guaranteed
 
@@ -314,15 +321,16 @@ Measured on an Apple M1 with `go test -bench . ./internal/core`:
 
 ## Status
 
-Built and tested: the engine, the gRPC service, the Postgres store with restart,
-`governord` with adaptive concurrency, the SDK, the hook for Claude Code and Codex,
-and the benchmark.
+Built and tested: the engine, the gRPC service, the Postgres store with snapshots
+and restart, `governord` with adaptive concurrency, the SDK, the hook for Claude
+Code and Codex, and the benchmark.
 
-Not built yet:
+Known limits:
 
-- snapshots, so restart time does not grow with history;
-- removing ended nodes from memory;
-- request ids that survive a restart.
+- one `governord` is the authority; there is no replication;
+- traffic is not encrypted, and API keys are kept in the configuration file;
+- hooks budget tool calls and subagents, but cannot limit how many run at once;
+- request ids sent directly with an API key, as hooks do, are not kept across a restart.
 
 ## License
 
