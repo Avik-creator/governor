@@ -38,9 +38,35 @@ func viaJSON(t *testing.T, events []Event) []Event {
 	return out
 }
 
+// snapshotViaJSON passes a snapshot through its stored form.
+func snapshotViaJSON(t *testing.T, snap *Snapshot) *Snapshot {
+	t.Helper()
+	data, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatalf("Marshal: %v", err)
+	}
+	out := &Snapshot{}
+	if err := json.Unmarshal(data, out); err != nil {
+		t.Fatalf("Unmarshal: %v", err)
+	}
+	return out
+}
+
+// mustRestoreFrom restores from a snapshot and the events recorded after it.
+func mustRestoreFrom(t *testing.T, clock Clock, snap *Snapshot, events []Event) *Engine {
+	t.Helper()
+	// Event n is at index n-1, so the events after the snapshot start at index Seq.
+	tail := viaJSON(t, events[snap.Seq:])
+	e, err := Restore(Config{Clock: clock}, snapshotViaJSON(t, snap), replay(tail))
+	if err != nil {
+		t.Fatalf("Restore from a snapshot at event %d: %v", snap.Seq, err)
+	}
+	return e
+}
+
 func mustRestore(t *testing.T, clock Clock, events []Event) *Engine {
 	t.Helper()
-	e, err := Restore(Config{Clock: clock}, replay(viaJSON(t, events)))
+	e, err := Restore(Config{Clock: clock}, nil, replay(viaJSON(t, events)))
 	if err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -52,6 +78,16 @@ func nodeID(n *node) NodeID {
 		return 0
 	}
 	return n.id
+}
+
+// sameCounts compares two counters, treating a missing entry as zero.
+func sameCounts[K comparable](a, b map[K]int) bool {
+	for k := range union(a, b) {
+		if a[k] != b[k] {
+			return false
+		}
+	}
+	return true
 }
 
 // sameState fails unless got holds exactly the durable state of want.
@@ -79,7 +115,7 @@ func sameState(t *testing.T, want, got *Engine) {
 			w.depth == g.depth && w.weight == g.weight && w.priority == g.priority &&
 			w.state == g.state && w.deadline.Equal(g.deadline) &&
 			maps.Equal(w.quota, g.quota) && maps.Equal(w.used, g.used) && maps.Equal(w.self, g.self) &&
-			maps.Equal(w.limits, g.limits) && maps.Equal(w.held, g.held) &&
+			maps.Equal(w.limits, g.limits) && sameCounts(w.held, g.held) &&
 			maps.Equal(w.gone, g.gone) && w.endedAt.Equal(g.endedAt) &&
 			slices.Equal(slices.Sorted(maps.Keys(w.leases)), slices.Sorted(maps.Keys(g.leases)))
 		if !same {
@@ -207,7 +243,7 @@ func TestRestore(t *testing.T) {
 
 	t.Run("ids and seq carry on", func(t *testing.T) {
 		rec2 := &recorder{}
-		r, err := Restore(Config{Clock: clock, Sink: rec2}, replay(rec.events))
+		r, err := Restore(Config{Clock: clock, Sink: rec2}, nil, replay(rec.events))
 		if err != nil {
 			t.Fatalf("Restore: %v", err)
 		}
@@ -228,9 +264,88 @@ func TestRestore(t *testing.T) {
 	})
 }
 
+func TestRestoreFromSnapshot(t *testing.T) {
+	rec := &recorder{}
+	clock := NewManualClock(time.Unix(1_700_000_000, 0))
+	e, err := New(Config{Clock: clock, Sink: rec, NodeRetention: time.Hour, Root: Spec{Limits: map[Class]int{"db": 3}}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	admin := mustSession(t, e, RootID, 0)
+	tenant := mustNode(t, e, admin, RootID, Spec{Name: "tenant", Weight: 2, Quotas: map[Resource]int64{"http": 100}})
+	task := mustNode(t, e, admin, tenant, Spec{Name: "task", Priority: 1, Deadline: clock.Now().Add(3 * time.Hour)})
+	old := mustNode(t, e, admin, tenant, Spec{Name: "old"})
+	removed := mustNode(t, e, admin, tenant, Spec{Name: "removed"})
+	worker := mustSession(t, e, tenant, time.Minute)
+	for id, amount := range map[NodeID]int64{task: 20, old: 9, removed: 4} {
+		if _, err := e.Consume(admin, id, "http", amount); err != nil {
+			t.Fatalf("Consume: %v", err)
+		}
+	}
+	mustAcquire(t, e, worker, task, "db")
+	released := mustAcquire(t, e, worker, task, "db")
+	mustRelease(t, e, worker, released)
+	if _, err := e.SetLimit(tenant, "db", 2); err != nil {
+		t.Fatalf("SetLimit: %v", err)
+	}
+	// One node ends and is removed before the snapshot; another ends and is still remembered.
+	if _, err := e.Cancel(admin, removed); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	clock.Advance(time.Hour)
+	if _, err := e.Heartbeat(worker); err == nil {
+		t.Fatal("the worker's session should have lapsed with the hour")
+	}
+	worker = mustSession(t, e, tenant, 0)
+	held := mustAcquire(t, e, worker, task, "db")
+	e.Reap()
+	if _, err := e.Close(admin, old); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	snap := e.Snapshot()
+	if snap.Seq != rec.events[len(rec.events)-1].Seq {
+		t.Fatalf("snapshot is at event %d, want the last event %d", snap.Seq, rec.events[len(rec.events)-1].Seq)
+	}
+	r := mustRestoreFrom(t, clock, snap, rec.events)
+	sameState(t, e, r)
+	checkInvariants(t, r, map[NodeID]State{})
+
+	// Work after the snapshot is replayed on top of it.
+	if _, err := e.Consume(worker, task, "http", 5); err != nil {
+		t.Fatalf("Consume: %v", err)
+	}
+	later := mustNode(t, e, admin, tenant, Spec{Name: "later"})
+	mustRelease(t, e, worker, held)
+	clock.Advance(time.Hour)
+	e.Reap()
+	r = mustRestoreFrom(t, clock, snap, rec.events)
+	sameState(t, e, r)
+	checkInvariants(t, r, map[NodeID]State{})
+	mustState(t, r, later, StateActive)
+	if _, err := r.State(old); !errors.Is(err, ErrUnknownNode) {
+		t.Errorf("State(node removed after the snapshot) = %v, want ErrUnknownNode", err)
+	}
+	_, err = r.Consume(admin, later, "http", 63)
+	if d, ok := errors.AsType[*DeniedError](err); !ok || d.Used != 38 || d.TopConsumer != task {
+		t.Errorf("Consume = %v, want a denial at 38 used with task as top consumer", err)
+	}
+
+	// A snapshot whose parts do not fit together is refused.
+	broken := snapshotViaJSON(t, snap)
+	broken.Sessions[0].Scope = 9999
+	if _, err := Restore(Config{}, broken, replay(nil)); !errors.Is(err, ErrCorrupt) {
+		t.Errorf("Restore from a broken snapshot = %v, want ErrCorrupt", err)
+	}
+	// Events that do not follow the snapshot are refused too.
+	if _, err := Restore(Config{}, snap, replay(rec.events)); !errors.Is(err, ErrCorrupt) {
+		t.Errorf("Restore with events from before the snapshot = %v, want ErrCorrupt", err)
+	}
+}
+
 func TestRestoreWithoutEvents(t *testing.T) {
 	rec := &recorder{}
-	e, err := Restore(Config{Sink: rec, Root: Spec{Limits: map[Class]int{"db": 1}}}, replay(nil))
+	e, err := Restore(Config{Sink: rec, Root: Spec{Limits: map[Class]int{"db": 1}}}, nil, replay(nil))
 	if err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -262,7 +377,7 @@ func TestRestoreRejectsCorruptLog(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := Restore(Config{}, replay(tc.events)); !errors.Is(err, ErrCorrupt) {
+			if _, err := Restore(Config{}, nil, replay(tc.events)); !errors.Is(err, ErrCorrupt) {
 				t.Errorf("Restore = %v, want ErrCorrupt", err)
 			}
 		})
@@ -273,7 +388,7 @@ func TestRestoreRejectsCorruptLog(t *testing.T) {
 		events := func(yield func(Event, error) bool) {
 			_ = yield(root, nil) && yield(Event{}, boom)
 		}
-		if _, err := Restore(Config{}, events); !errors.Is(err, boom) {
+		if _, err := Restore(Config{}, nil, events); !errors.Is(err, boom) {
 			t.Errorf("Restore = %v, want the read error", err)
 		}
 	})

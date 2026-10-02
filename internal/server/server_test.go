@@ -167,7 +167,7 @@ func newHarness(t *testing.T, root, tenant core.Spec) *harness {
 func (h *harness) restart() {
 	h.t.Helper()
 	h.server.Close()
-	engine, err := core.Restore(core.Config{Clock: h.clock, Sink: h.log}, h.log.replay())
+	engine, err := core.Restore(core.Config{Clock: h.clock, Sink: h.log}, nil, h.log.replay())
 	if err != nil {
 		h.t.Fatalf("Restore: %v", err)
 	}

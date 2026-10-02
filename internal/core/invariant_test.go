@@ -193,6 +193,7 @@ type fuzzer struct {
 	scope    map[SessionID]NodeID
 	cancels  []func() // each cancels one queued acquire and waits for it to return
 	terminal map[NodeID]State
+	snap     *Snapshot // taken halfway, to restore from a snapshot plus later events
 	wg       sync.WaitGroup
 }
 
@@ -564,6 +565,9 @@ func TestRandomOperations(t *testing.T) {
 	for seed := range int64(seeds) {
 		f := newFuzzer(t, seed)
 		for i := range steps {
+			if i == steps/2 {
+				f.snap = f.e.Snapshot()
+			}
 			f.step()
 			f.check()
 			if t.Failed() {
@@ -585,6 +589,13 @@ func (f *fuzzer) restore() {
 	r := mustRestore(f.t, f.clock, f.audit.events)
 	sameState(f.t, f.e, r)
 	checkInvariants(f.t, r, map[NodeID]State{})
+
+	// A snapshot from halfway plus the events since, and a snapshot of now, must agree too.
+	for _, snap := range []*Snapshot{f.snap, f.e.Snapshot()} {
+		r := mustRestoreFrom(f.t, f.clock, snap, f.audit.events)
+		sameState(f.t, f.e, r)
+		checkInvariants(f.t, r, map[NodeID]State{})
+	}
 }
 
 // benchEngine returns an engine and a task under a tenant, reaped in the background.
