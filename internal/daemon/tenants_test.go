@@ -61,6 +61,32 @@ func TestReconcile(t *testing.T) {
 		t.Errorf("a changed limit recorded %v", events)
 	}
 
+	// Defaults from the file seed a tenant that has none, and never replace what is on record.
+	defaults := func(id core.NodeID) *core.Defaults {
+		t.Helper()
+		sid, _, _, _ := engine.OpenSession(core.RootID, 0)
+		defer engine.CloseSession(sid)
+		node, _, err := engine.Describe(sid, id)
+		if err != nil {
+			t.Fatalf("Describe: %v", err)
+		}
+		return node.Defaults
+	}
+	cfg.Tenants[0].Defaults = &config.Defaults{Quotas: map[core.Resource]int64{"tool_calls": 500}}
+	if _, _, err := reconcile(engine, cfg); err != nil {
+		t.Fatalf("reconcile with defaults: %v", err)
+	}
+	if d := defaults(a); d == nil || d.Quotas["tool_calls"] != 500 {
+		t.Errorf("defaults = %+v, want the configured ones", d)
+	}
+	cfg.Tenants[0].Defaults.Quotas["tool_calls"] = 9
+	if _, _, err := reconcile(engine, cfg); err != nil {
+		t.Fatalf("reconcile with changed defaults: %v", err)
+	}
+	if d := defaults(a); d == nil || d.Quotas["tool_calls"] != 500 {
+		t.Errorf("defaults = %+v after the file changed, want the ones on record", d)
+	}
+
 	// A tenant whose node has ended gets a fresh one.
 	admin, _, _, _ := engine.OpenSession(core.RootID, 0)
 	if _, err := engine.Cancel(admin, b); err != nil {
@@ -75,5 +101,17 @@ func TestReconcile(t *testing.T) {
 	}
 	if third["key-b"] == b || third["key-a"] != a {
 		t.Errorf("keys = %v, want a kept at %d and b moved off %d", third, a, b)
+	}
+
+	// A tenant created with defaults in the file starts with them.
+	cfg.Tenants = append(cfg.Tenants, config.Tenant{
+		Name: "c", APIKey: "key-c", Defaults: &config.Defaults{Quotas: map[core.Resource]int64{"agents": 2}},
+	})
+	fourth, _, err := reconcile(engine, cfg)
+	if err != nil {
+		t.Fatalf("reconcile with a new tenant: %v", err)
+	}
+	if d := defaults(fourth["key-c"]); d == nil || d.Quotas["agents"] != 2 {
+		t.Errorf("defaults of a new tenant = %+v, want the configured ones", d)
 	}
 }

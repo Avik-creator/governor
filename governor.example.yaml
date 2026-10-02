@@ -4,8 +4,10 @@
 
 listen: 127.0.0.1:7600
 
-# The Postgres that holds the durable record. Leave empty to keep everything in
-# memory, in which case nothing survives a restart.
+# Where the durable record is kept. A postgres:// URL names a Postgres, which is
+# the choice when governord serves several machines. "sqlite:" followed by a
+# path names a file, which is enough for one machine. Leave empty to keep
+# everything in memory, in which case nothing survives a restart.
 database_url: ${GOVERNOR_DATABASE_URL}
 
 # How often expired sessions, leases and deadlines are applied.
@@ -51,6 +53,17 @@ tenants:
       tool_calls: 5000
     limits:
       agents: 5
+    # What each new task of the tenant starts with, whatever the task asks for.
+    # For the agent CLI hook, these are the budget of one run, and "children"
+    # is the budget of each subagent. The file only seeds them: once they are
+    # changed with "governor ui", the recorded values are kept.
+    defaults:
+      quotas:
+        tool_calls: 500
+        agents: 10
+      children:
+        quotas:
+          tool_calls: 100
 
   - name: team-b
     api_key: ${TEAM_B_KEY}

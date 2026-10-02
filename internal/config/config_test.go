@@ -29,6 +29,10 @@ tenants:
     weight: 3
     quotas: {http: 100000}
     limits: {agents: 5}
+    defaults:
+      quotas: {tool_calls: 500, agents: 10}
+      children:
+        quotas: {tool_calls: 100}
   - name: team-b
     api_key: key-b
 `
@@ -70,7 +74,11 @@ func TestParse(t *testing.T) {
 		a.Quotas["http"] != 100000 || a.Limits["agents"] != 5 {
 		t.Errorf("tenant a = %+v", cfg.Tenants[0])
 	}
-	if b := cfg.Tenants[1]; b.APIKey != "key-b" || b.Weight != 0 || b.Quotas != nil {
+	if d := a.Defaults; d == nil || d.Quotas["tool_calls"] != 500 || d.Quotas["agents"] != 10 ||
+		d.Children == nil || d.Children.Quotas["tool_calls"] != 100 || d.Children.Children != nil {
+		t.Errorf("tenant a defaults = %+v", d)
+	}
+	if b := cfg.Tenants[1]; b.APIKey != "key-b" || b.Weight != 0 || b.Quotas != nil || b.Spec().Defaults != nil {
 		t.Errorf("tenant b = %+v", b)
 	}
 }
@@ -108,6 +116,7 @@ func TestParseRejects(t *testing.T) {
 		{"tenant with admin key", "admin_key: k\ntenants: [{name: a, api_key: k}]", "admin_key"},
 		{"negative weight", "tenants: [{name: a, api_key: k, weight: -1}]", "weight"},
 		{"negative quota", "tenants: [{name: a, api_key: k, quotas: {http: -1}}]", "quota"},
+		{"negative default", "tenants: [{name: a, api_key: k, defaults: {children: {quotas: {http: -1}}}}]", "defaults"},
 		{"adaptive class without a root limit", "adaptive: [{class: db}]", "no limit"},
 		{"adaptive class twice", "root: {limits: {db: 4}}\nadaptive: [{class: db}, {class: db}]", "listed twice"},
 	}

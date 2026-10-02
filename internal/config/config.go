@@ -33,7 +33,7 @@ type Config struct {
 	// Listen is the address the gRPC server binds to.
 	Listen string `yaml:"listen"`
 
-	// DatabaseURL is the Postgres to record to; empty keeps everything in memory.
+	// DatabaseURL is the Postgres, or the "sqlite:" file, to record to; empty keeps everything in memory.
 	DatabaseURL string `yaml:"database_url"`
 
 	// ReapInterval is how often expired sessions, leases and deadlines are applied.
@@ -103,7 +103,27 @@ type Tenant struct {
 	// Weight is the tenant's share when competing for a class; zero means 1.
 	Weight int `yaml:"weight"`
 
+	// Defaults is what each new task of the tenant starts with, until it is changed over the API.
+	Defaults *Defaults `yaml:"defaults"`
+
 	Caps `yaml:",inline"`
+}
+
+// Defaults are the quotas a node gives each new child, whatever the child asks for.
+type Defaults struct {
+	// Quotas replace the child's caps for the resources named here.
+	Quotas map[core.Resource]int64 `yaml:"quotas"`
+
+	// Children are the defaults each child passes on to its own children.
+	Children *Defaults `yaml:"children"`
+}
+
+// Core returns the defaults in the engine's form; nil stays nil.
+func (d *Defaults) Core() *core.Defaults {
+	if d == nil {
+		return nil
+	}
+	return &core.Defaults{Quotas: d.Quotas, Children: d.Children.Core()}
 }
 
 // Spec returns the node spec these caps describe.
@@ -114,7 +134,7 @@ func (c Caps) Spec() core.Spec {
 // Spec returns the node spec of the tenant.
 func (t Tenant) Spec() core.Spec {
 	spec := t.Caps.Spec()
-	spec.Name, spec.Weight = t.Name, t.Weight
+	spec.Name, spec.Weight, spec.Defaults = t.Name, t.Weight, t.Defaults.Core()
 	return spec
 }
 
@@ -204,6 +224,11 @@ func (c *Config) validate() error {
 		}
 		if err := t.Caps.validate(); err != nil {
 			return fmt.Errorf("tenant %q: %w", t.Name, err)
+		}
+		for d := t.Defaults; d != nil; d = d.Children {
+			if err := (Caps{Quotas: d.Quotas}).validate(); err != nil {
+				return fmt.Errorf("tenant %q: defaults: %w", t.Name, err)
+			}
 		}
 	}
 	tuned := make(map[core.Class]bool, len(c.Adaptive))

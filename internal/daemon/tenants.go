@@ -46,7 +46,7 @@ func applyConfig(engine *core.Engine, sid core.SessionID, cfg *config.Config) (m
 	for _, t := range cfg.Tenants {
 		id, ok := existing[t.Name]
 		if ok {
-			err = setLimits(engine, id, t.Limits)
+			err = update(engine, sid, id, t)
 		} else {
 			id, _, err = engine.CreateNode(sid, core.RootID, t.Spec())
 		}
@@ -56,6 +56,23 @@ func applyConfig(engine *core.Engine, sid core.SessionID, cfg *config.Config) (m
 		keys[t.APIKey] = id
 	}
 	return keys, nil
+}
+
+// update applies a tenant's configured limits, and its defaults if the node has none.
+func update(engine *core.Engine, sid core.SessionID, id core.NodeID, t config.Tenant) error {
+	if err := setLimits(engine, id, t.Limits); err != nil {
+		return err
+	}
+	if t.Defaults == nil {
+		return nil
+	}
+	node, _, err := engine.Describe(sid, id)
+	// Defaults already on record were set over the API, and the file only seeds them.
+	if err != nil || node.Defaults != nil {
+		return err
+	}
+	_, err = engine.SetDefaults(sid, id, t.Defaults.Core())
+	return err
 }
 
 // setLimits applies configured limits to a node; unchanged limits record nothing.
