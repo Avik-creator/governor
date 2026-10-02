@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"iter"
 	"maps"
 	"slices"
@@ -139,6 +140,9 @@ func sameState(t *testing.T, want, got *Engine) {
 		g := got.sessions[id]
 		if g == nil || w.scope.id != g.scope.id || w.ttl != g.ttl || len(w.leases) != len(g.leases) {
 			t.Fatalf("session %d differs: got %+v, want %+v", id, g, w)
+		}
+		if !slices.Equal(w.order, g.order) || !maps.Equal(w.requests, g.requests) {
+			t.Fatalf("session %d remembers requests %v, want %v", id, g.requests, w.requests)
 		}
 	}
 	for id, w := range want.leases {
@@ -340,6 +344,94 @@ func TestRestoreFromSnapshot(t *testing.T) {
 	// Events that do not follow the snapshot are refused too.
 	if _, err := Restore(Config{}, snap, replay(rec.events)); !errors.Is(err, ErrCorrupt) {
 		t.Errorf("Restore with events from before the snapshot = %v, want ErrCorrupt", err)
+	}
+}
+
+func TestRequestIDs(t *testing.T) {
+	rec := &recorder{}
+	clock := NewManualClock(time.Unix(1_700_000_000, 0))
+	e, err := New(Config{Clock: clock, Sink: rec, Root: Spec{Quotas: map[Resource]int64{"http": 100}}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	sid := mustSession(t, e, RootID, 0)
+	other := mustSession(t, e, RootID, 0)
+	ctx := context.Background()
+
+	node, _, err := e.CreateNodeOnce(sid, "create", RootID, Spec{Name: "task"})
+	if err != nil {
+		t.Fatalf("CreateNodeOnce: %v", err)
+	}
+	if _, err := e.ConsumeOnce(sid, "charge", node, "http", 7); err != nil {
+		t.Fatalf("ConsumeOnce: %v", err)
+	}
+	lease, _, err := e.Acquire(ctx, sid, node, "db", AcquireOptions{Request: "hold"})
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	mustRelease(t, e, sid, lease)
+	snap := e.Snapshot()
+
+	// The same requests repeated: on the engine, after a replay of its events, and after a snapshot.
+	engines := map[string]*Engine{
+		"same engine":   e,
+		"after replay":  mustRestore(t, clock, rec.events),
+		"from snapshot": mustRestoreFrom(t, clock, snap, rec.events),
+	}
+	for name, e := range engines {
+		t.Run(name, func(t *testing.T) {
+			events := e.Seq()
+			if again, _, err := e.CreateNodeOnce(sid, "create", RootID, Spec{Name: "task"}); err != nil || again != node {
+				t.Errorf("repeated CreateNodeOnce = %d, %v, want node %d", again, err, node)
+			}
+			if _, err := e.ConsumeOnce(sid, "charge", node, "http", 7); err != nil {
+				t.Errorf("repeated ConsumeOnce: %v", err)
+			}
+			// The lease has been released, but the answer to the request is still the same lease.
+			again, _, err := e.Acquire(ctx, sid, node, "db", AcquireOptions{Request: "hold"})
+			if err != nil || again != lease {
+				t.Errorf("repeated Acquire = %d, %v, want lease %d", again, err, lease)
+			}
+			if got := used(e, RootID, "http"); got != 7 || e.Seq() != events {
+				t.Errorf("repeats left %d used and %d new events, want 7 and none", got, e.Seq()-events)
+			}
+
+			// The same id for a different request is a mistake by the caller.
+			if _, err := e.ConsumeOnce(sid, "charge", node, "http", 8); !errors.Is(err, ErrInvalid) {
+				t.Errorf("ConsumeOnce with a reused id = %v, want ErrInvalid", err)
+			}
+			if _, _, err := e.CreateNodeOnce(sid, "charge", RootID, Spec{}); !errors.Is(err, ErrInvalid) {
+				t.Errorf("CreateNodeOnce with a reused id = %v, want ErrInvalid", err)
+			}
+			// Ids belong to a session, and a request without one is always carried out.
+			if _, err := e.ConsumeOnce(other, "charge", node, "http", 1); err != nil {
+				t.Errorf("ConsumeOnce by another session: %v", err)
+			}
+			if _, err := e.ConsumeOnce(sid, "", node, "http", 1); err != nil {
+				t.Errorf("ConsumeOnce without an id: %v", err)
+			}
+			if got := used(e, RootID, "http"); got != 9 {
+				t.Errorf("used = %d, want 9", got)
+			}
+		})
+	}
+}
+
+func TestRequestIDsAreCapped(t *testing.T) {
+	e, sid, _ := newEngine(t, Spec{})
+	for i := range maxRequests + 1 {
+		if _, err := e.ConsumeOnce(sid, fmt.Sprint("r", i), RootID, "http", 1); err != nil {
+			t.Fatalf("ConsumeOnce: %v", err)
+		}
+	}
+	// The oldest id has been forgotten, so repeating it is a new request; the newest is remembered.
+	for _, id := range []string{"r0", fmt.Sprint("r", maxRequests)} {
+		if _, err := e.ConsumeOnce(sid, id, RootID, "http", 1); err != nil {
+			t.Fatalf("ConsumeOnce: %v", err)
+		}
+	}
+	if got := used(e, RootID, "http"); got != maxRequests+2 {
+		t.Errorf("used = %d, want %d", got, maxRequests+2)
 	}
 }
 

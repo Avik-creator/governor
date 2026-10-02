@@ -191,7 +191,8 @@ type fuzzer struct {
 	admin    SessionID                     // scoped to the root, never expires or closes
 	sessions []SessionID
 	scope    map[SessionID]NodeID
-	cancels  []func() // each cancels one queued acquire and waits for it to return
+	requests map[string]string // what each session's request id was first used for
+	cancels  []func()          // each cancels one queued acquire and waits for it to return
 	terminal map[NodeID]State
 	snap     *Snapshot // taken halfway, to restore from a snapshot plus later events
 	wg       sync.WaitGroup
@@ -213,6 +214,7 @@ func newFuzzer(t *testing.T, seed int64) *fuzzer {
 		parent:   make(map[NodeID]NodeID),
 		consumed: make(map[NodeID]map[Resource]int64),
 		scope:    make(map[SessionID]NodeID),
+		requests: make(map[string]string),
 		terminal: make(map[NodeID]State),
 	}
 	e, err := New(Config{
@@ -412,6 +414,10 @@ func (f *fuzzer) consume() {
 	sid := f.actor()
 	id, r := f.target(sid), fuzzResources[f.rng.Intn(2)]
 	amount, before := int64(1+f.rng.Intn(8)), f.audit.seq
+	if f.rng.Intn(4) == 0 {
+		f.consumeOnce(sid, id, r, amount)
+		return
+	}
 	_, err := f.e.Consume(sid, id, r, amount)
 	f.checkScope(sid, id, before, err)
 	var d *DeniedError
@@ -428,6 +434,34 @@ func (f *fuzzer) consume() {
 		if d.Used+d.Requested <= d.Limit {
 			f.t.Fatalf("unjustified denial: %v", err)
 		}
+	}
+}
+
+// consumeOnce charges with one of a few request ids, so that ids are often repeated.
+func (f *fuzzer) consumeOnce(sid SessionID, id NodeID, r Resource, amount int64) {
+	request := fmt.Sprint("request-", f.rng.Intn(5))
+	key := fmt.Sprint(sid, "/", request)
+	want := fmt.Sprint(id, r, amount)
+	before := f.audit.seq
+	_, err := f.e.ConsumeOnce(sid, request, id, r, amount)
+	first, seen := f.requests[key]
+	switch {
+	case errors.Is(err, ErrSessionExpired):
+	case seen && first != want:
+		if !errors.Is(err, ErrInvalid) {
+			f.t.Fatalf("request id reused for another request = %v, want ErrInvalid", err)
+		}
+	case seen:
+		// A repeat succeeds whatever has happened to the node since, and changes nothing.
+		if err != nil || f.audit.seq != before {
+			f.t.Fatalf("repeated request = %v with %d new events, want success and none", err, f.audit.seq-before)
+		}
+	case err == nil:
+		f.requests[key] = want
+		if f.consumed[id] == nil {
+			f.consumed[id] = make(map[Resource]int64)
+		}
+		f.consumed[id][r] += amount
 	}
 }
 
