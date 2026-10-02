@@ -236,8 +236,11 @@ attempt counts.
   caller receives its answer. Changes are batched into one transaction per flush.
 - **Idempotent requests.** Every mutating request carries a request id. Repeating
   an id returns the original result and applies nothing twice.
-- **Restart.** Nodes, usage, live leases and sessions are rebuilt by replaying the
-  recorded events. Session tokens are stored as hashes, so a worker carries on
+- **Snapshots.** Once enough events have accumulated, the whole state is saved as
+  a snapshot and the events it covers are deleted, in one transaction. The time a
+  restart takes therefore depends on the size of the state, not on its history.
+- **Restart.** Nodes, usage, live leases and sessions are rebuilt from the newest
+  snapshot and the events recorded after it. Session tokens are stored as hashes, so a worker carries on
   with the token and leases it had. Each session gets one fresh TTL to reconnect;
   sessions that do not heartbeat expire. A session with no stored token could
   never be used again, so it is closed at start.
