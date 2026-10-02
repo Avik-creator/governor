@@ -120,3 +120,17 @@ func TestLoad(t *testing.T) {
 		t.Error("Load of a missing file succeeded")
 	}
 }
+
+func TestExampleFileLoads(t *testing.T) {
+	t.Setenv("GOVERNOR_DATABASE_URL", "")
+	t.Setenv("GOVERNOR_ADMIN_KEY", "admin")
+	t.Setenv("TEAM_A_KEY", "key-a")
+	t.Setenv("TEAM_B_KEY", "key-b")
+	cfg, err := Load(filepath.Join("..", "..", "governor.example.yaml"))
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Tenants) != 2 || cfg.Root.Limits["db"] != 20 {
+		t.Errorf("example file loaded as %+v", cfg)
+	}
+}

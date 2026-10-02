@@ -1,5 +1,6 @@
-# Example configuration for governord. ${NAME} is replaced by the environment
-# variable NAME, and governord refuses to start if one of them is not set.
+# Example configuration for governord. A dollar sign followed by a name in
+# braces is replaced by that environment variable, anywhere in this file and
+# even inside comments. governord refuses to start if a variable is not set.
 
 listen: 127.0.0.1:7600
 
