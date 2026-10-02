@@ -12,7 +12,23 @@ answers them the same way for a task, its subtasks and the tenant that owns them
 - **May this task run one more thing at once?** (leases: database connections, concurrent agents)
 - **Is this task still allowed to run?** (deadlines and cancellation)
 
+![governor ui listing the Claude Code and Codex sessions of one tenant with their budgets](docs/ui.png)
+
+*`governor ui` showing the Claude Code and Codex sessions of one tenant: one has
+spent its tool-call budget and is refused further tools, one is close to it.*
+
 The exact semantics are in [SPEC.md](SPEC.md), which is the contract the tests check.
+
+**Contents:** [How it works](#how-it-works) ·
+[Quick start](#quick-start) ·
+[Using the SDK](#using-the-sdk) ·
+[Governing Claude Code and Codex](#governing-claude-code-and-codex) ·
+[Watching and changing budgets](#watching-and-changing-budgets) ·
+[Benchmark](#benchmark) ·
+[What is guaranteed](#what-is-guaranteed) ·
+[Layout](#layout) ·
+[Development](#development) ·
+[Status](#status)
 
 ## How it works
 
@@ -43,10 +59,10 @@ org (root)                    limits here are the shared pools: db, http, agents
   downstream is healthy and cuts it to 70% when latency or overload rises.
 - **Caps can be changed while work runs.** `governor ui` shows what every task has
   used and edits its caps, and the defaults new tasks start with.
-- **Postgres or SQLite is the durable record.** Every change is committed before the caller
-  gets its reply, in batches. A restart rebuilds the tree from the newest snapshot
-  and the changes recorded after it, and a request retried across the restart is
-  not applied twice.
+- **Postgres or SQLite is the durable record.** Every change is committed before
+  the caller gets its reply, in batches. A restart rebuilds the tree from the
+  newest snapshot and the changes recorded after it, and a request retried across
+  the restart is not applied twice.
 
 ## Quick start
 
@@ -54,16 +70,15 @@ You need Go 1.26 or later. A database is optional: without one `governord` keeps
 everything in memory.
 
 ```sh
-# 1. A Postgres for the durable record (optional).
-docker run -d --name governor-pg -e POSTGRES_PASSWORD=governor -e POSTGRES_DB=governor \
-  -p 5432:5432 postgres:17-alpine
-
-# 2. Settings the example configuration reads from the environment.
-export GOVERNOR_DATABASE_URL='postgres://postgres:governor@localhost:5432/governor?sslmode=disable'
+# 1. Settings the example configuration reads from the environment.
+export GOVERNOR_DATABASE_URL="sqlite:$PWD/governor.db"
 export GOVERNOR_ADMIN_KEY=admin-secret TEAM_A_KEY=team-a-secret TEAM_B_KEY=team-b-secret
 
-# 3. Run the daemon.
+# 2. Run the daemon.
 go run ./cmd/governord -config governor.example.yaml
+
+# 3. In another terminal, with the same variables set, watch the tree.
+go run ./cmd/governor ui -config governor.example.yaml
 ```
 
 `governor.example.yaml` declares the shared pools and one node per tenant.
@@ -74,6 +89,14 @@ go run ./cmd/governord -config governor.example.yaml
 | `postgres://…` | Postgres | `governord` serves several machines |
 | `sqlite:/path/to/governor.db` | One file, no other process needed | everything runs on one machine |
 | empty | None; a restart forgets everything | trying it out, tests |
+
+For Postgres, any database will do, for example:
+
+```sh
+docker run -d --name governor-pg -e POSTGRES_PASSWORD=governor -e POSTGRES_DB=governor \
+  -p 5432:5432 postgres:17-alpine
+export GOVERNOR_DATABASE_URL='postgres://postgres:governor@localhost:5432/governor?sslmode=disable'
+```
 
 ## Using the SDK
 
@@ -228,26 +251,29 @@ and the second was refused with the budget message when the budget was one tool 
 ## Watching and changing budgets
 
 `governor ui` is a terminal screen over the same tree. It lists the runs of a
-tenant with what each has used, refreshed every second.
+tenant with what each has used, refreshed every second. Usage turns yellow from
+80% of a cap and red once the cap is reached.
 
-```text
-Governor  127.0.0.1:7600                                           updated 22:35:50
-codex   agents 1/∞ · tool_calls 5/∞
-───────────────────────────────────────────────────────────────────────────────────
-  NAME           STATE   ENDS IN  CHILDREN  agents  tool_calls
-  claude:sess-B  active   23h58m         0     0/2         1/5
-▸ codex:sess-A   active   23h58m         1     1/2         4/8
-───────────────────────────────────────────────────────────────────────────────────
-New children start with: agents 2, tool_calls 5 · their children: tool_calls 2
-↑↓ move · enter open · esc back · e edit caps · d edit defaults · c cancel · q quit
-```
+![The list of runs](docs/ui.png)
+
+Opening a run with `enter` shows its subagents, each with its own budget:
+
+![The subagents of one run](docs/ui-agents.png)
+
+`e` opens the caps of the selected run. Here a run that has spent its 500 tool
+calls is being given 800, which lets it carry on from its next tool call:
+
+![Editing the caps of a run](docs/ui-edit.png)
 
 | Key | What it does |
 | --- | --- |
-| `e` | Edit the caps of the selected run: raise a spent budget, lower one, or remove it |
-| `d` | Edit the defaults: what every new run, and every subagent, starts with |
+| `↑` `↓` | Move between runs |
 | `enter` | Open a run to see its subagents; `esc` goes back |
+| `e` | Edit the caps of the selected run: raise a spent budget, lower one, or empty the field to remove it |
+| `d` | Edit the defaults: what every new run, and every subagent, starts with |
 | `c` | Cancel a run, after asking; every later tool call of that run is refused |
+| `r` | Read again now, without waiting for the next refresh |
+| `q` | Quit |
 
 ```sh
 GOVERNOR_API_KEY=team-a-secret governor ui     # one tenant's runs
