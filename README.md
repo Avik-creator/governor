@@ -337,6 +337,57 @@ per scrape, under the engine's lock, and only the root and the tenants are read.
 The endpoint has no authentication: it shows tenants' names and usage, so bind it
 to a private address.
 
+### Dashboard
+
+`monitoring/` holds a Prometheus and a Grafana that are set up for one `governord`
+on the same machine, with a dashboard already loaded:
+
+```sh
+docker compose -f monitoring/compose.yaml up -d    # then open http://localhost:3000
+```
+
+![The Governor dashboard in Grafana](docs/dashboard.png)
+
+The picture is five minutes of the example workload below against the example
+configuration, with the class filter at the top set to `db`. What it shows:
+
+- **Shared pools.** The dashed line is the `db` limit, which is adaptive here. It
+  climbs by one each second while the service is healthy and is cut to 70% when
+  leases report overload, which gives the sawtooth between 5 and 8. The service
+  in the example slows down past 6 calls at once.
+- **Waiting for a lease** and **Leases held by tenant.** `team-a` runs 16 workers
+  and `team-b` runs 6, so about 15 acquires are queued at any moment. `team-a`
+  does not get the whole pool: the weights divide it.
+- **Budget used.** `team-a` has spent three quarters of its `http` quota. The bar
+  turns yellow at 80% and red when the quota is spent.
+- **Calls that did not succeed.** Each job ends when its own budget is spent, and
+  those refusals are the `ResourceExhausted` line.
+- **Call latency.** `Acquire` takes about 95 ms because that call waits in the
+  queue; every other call takes about a millisecond.
+- **Events per commit.** Several changes share one transaction: group commit.
+
+To produce a workload like it, run the example in two terminals, one per tenant,
+with the variables from the quick start set:
+
+```sh
+GOVERNOR_API_KEY=$TEAM_A_KEY go run ./examples/load -workers 16
+GOVERNOR_API_KEY=$TEAM_B_KEY go run ./examples/load -workers 6 -budget 120
+```
+
+`examples/load` is also the shortest complete program that uses the SDK: jobs that
+spend an `http` budget, queue for `db` leases and report how the service behaved.
+
+Things to know about the stack:
+
+- **Ports.** Grafana is on 3000 and Prometheus on 9090, both bound to this machine
+  only. Anyone who can reach Grafana may look; changing anything needs the admin
+  login, whose password is `admin` unless `GRAFANA_ADMIN_PASSWORD` is set.
+- **Target.** Prometheus scrapes `host.docker.internal:7601`; change
+  `monitoring/prometheus.yaml` if `metrics_listen` is elsewhere.
+- **Linux.** A container cannot reach a port bound to the host's `127.0.0.1`. Set
+  `metrics_listen` to the address of the Docker bridge, usually `172.17.0.1:7601`.
+  On macOS and Windows the default works as it is.
+
 ## Benchmark
 
 `govbench` runs the same workload with and without Governor against a simulated
@@ -521,6 +572,8 @@ the shape it would take. It is not built.
 | `internal/adaptive` | The controller that tunes a limit from reported latency and overload |
 | `internal/store` | Postgres or SQLite: events with group commit, snapshots, session token hashes (goose, goqu) |
 | `internal/config` | The YAML configuration |
+| `examples/load` | A small workload that uses the SDK, for trying things out |
+| `monitoring` | Prometheus and Grafana for one `governord`, with a dashboard |
 | `proto/governor/v1` | The gRPC contract; generated code is in `internal/gen` |
 
 ## Development
