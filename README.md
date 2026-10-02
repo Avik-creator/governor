@@ -26,6 +26,7 @@ The exact semantics are in [SPEC.md](SPEC.md), which is the contract the tests c
 [Watching and changing budgets](#watching-and-changing-budgets) ·
 [Benchmark](#benchmark) ·
 [What is guaranteed](#what-is-guaranteed) ·
+[Design decisions](#design-decisions) ·
 [Layout](#layout) ·
 [Development](#development) ·
 [Status](#status)
@@ -361,6 +362,99 @@ restart path and compared field by field with the live engine.
 SPEC.md §12 lists what is not guaranteed, including that there is one `governord`
 with no replication, and that traffic is not encrypted.
 
+## Design decisions
+
+The five decisions the rest of the design hangs on, and what each one costs.
+
+### Why a lease id is a fencing token
+
+A TTL cannot stop a worker that is paused. A worker can freeze for longer than its
+session's TTL, in a garbage collection or a suspended VM, and wake up still
+believing it holds a lease that has since expired and been granted to someone
+else. No timeout on the worker's side can rule this out, because the worker is
+not running while its time passes.
+
+So the protection has to sit where the work lands. Lease ids come from one
+sequence that only grows and is never reissued, which makes a larger id a later
+grant. A downstream that remembers the largest id it has seen can refuse a
+smaller one, or it can call `Validate` before doing something irreversible.
+`governord` itself rejects every call that carries an ended lease or session.
+What Governor cannot do is stop the paused worker from trying; SPEC.md §12 says so.
+
+### How crash recovery works
+
+The tree lives in memory and every change to it is an event with a sequence
+number. Four rules make a restart safe:
+
+1. **Write before reply.** A caller gets its answer only after its event is
+   committed. Events are committed in batches, so many callers share one
+   transaction.
+2. **A failed commit is fatal.** The engine is then ahead of the record, so the
+   process stops instead of serving state that a restart would lose.
+3. **Replay is the same code path as a snapshot.** A restart loads the newest
+   snapshot and applies the events after it. The randomized test replays every
+   history three ways and compares the result with the live engine field by field.
+4. **Retries are answered from the record.** A request id is stored in the event
+   it caused, so a caller who lost the reply and retries, even after the restart,
+   gets the original result and nothing is applied twice.
+
+Heartbeats are not recorded, so a restart cannot know which sessions were alive.
+Each one gets a single fresh TTL to reconnect, and the ones whose workers died
+expire as usual.
+
+### What the fair queue guarantees, and what it does not
+
+Each class has one queue per tenant, served by weighted deficit round robin: in
+one round a tenant with weight `w` receives up to `w` grants.
+
+- **Guaranteed:** while tenants have waiters that fit, grants are shared in
+  proportion to their weights, whatever the length of their queues. A tenant waits
+  at most one round, which is the sum of the other tenants' weights in grants.
+- **Guaranteed:** the queue is work conserving. No acquire is left waiting when
+  it would fit, and a waiter blocked only by its own subtree's cap never blocks
+  anyone else.
+- **Not guaranteed:** fairness inside a tenant. Priority there is strict, so a
+  steady stream of high-priority work starves the tenant's own low-priority work.
+- **Not guaranteed:** fairness of time held. Grants are counted, not how long
+  each lease is kept, so a tenant that holds its leases longer occupies more of
+  the pool.
+- **Not guaranteed:** credit for the past. A tenant passed over because nothing
+  of its own fitted gives up the rest of its round and is not repaid later.
+
+### How a charge to a whole chain stays atomic
+
+A consume must fit under the task's cap, its parent's, its tenant's and the
+root's, and must be applied to all of them or to none. Governor does this the
+plain way: the engine has one lock, checks every node on the chain, and only then
+adds to every node. No other operation can see a state in between, so there is
+nothing to roll back. One event records the whole charge.
+
+This works because a limit is a cap and not a reservation: creating a child sets
+nothing aside, so there is no balance to move between nodes and no transaction
+across them. The cost is that every operation in the process goes through one
+lock. A consume takes about 330 ns on eight cores, which is far below the cost of
+the network call and the commit around it, so the simpler design was chosen over
+per-node locking.
+
+### What breaks if `governord` is replicated naively
+
+There is one `governord` on purpose. Each obvious way of adding a second one
+breaks a guarantee:
+
+| Naive design | What fails |
+| --- | --- |
+| Two instances behind a load balancer, each counting on its own | The quota bound and the lease bound: each instance admits up to the full cap, so the tree can use twice its budget. |
+| A primary with a standby fed asynchronously | Write before reply: after a failover the newest acknowledged changes are missing, so a granted lease is forgotten and its slot is granted again. |
+| Any failover that loses the tail of the record | Fencing: the new primary can issue an id the old one already issued, so a larger id no longer means a later grant. |
+| Each replica expiring sessions by its own clock | Single end of a lease: two replicas can disagree on whether a session lapsed, and so on who holds its capacity. |
+| Failover with the queues left in memory | Waiting acquires and the tenants' positions in the round are lost; callers must retry, and fairness starts again from nothing. |
+
+A correct version has to make each decision once and agree on it before
+answering, which means a consensus log such as Raft, with ids and expiry decided
+by the leader and carried in the log. The record is already an ordered log of
+events that replays deterministically, with request ids inside it, so that is
+the shape it would take. It is not built.
+
 ## Layout
 
 | Path | Contents |
@@ -412,8 +506,15 @@ Known limits:
 
 - one `governord` is the authority; there is no replication;
 - traffic is not encrypted, and API keys are kept in the configuration file;
+- there are no metrics or traces, only logs;
 - hooks budget tool calls and subagents, but cannot limit how many run at once;
 - request ids sent directly with an API key, as hooks do, are not kept across a restart.
+
+What would come next, in this order: TLS and metrics, so that one `governord` can
+be run for real; then replication through a consensus log, tested with a
+linearizability checker under injected faults. Governor is meant to stay a
+resource governor for fan-out workloads; the agent CLI hook is one use of it, not
+its direction.
 
 ## License
 
