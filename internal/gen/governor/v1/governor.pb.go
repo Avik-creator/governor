@@ -247,6 +247,200 @@ func (x *Spec) GetPriority() int64 {
 	return 0
 }
 
+// Defaults is what a node gives each new child, whatever the child's own spec asks for.
+type Defaults struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// quotas replace the child's caps for the resources named here.
+	Quotas map[string]int64 `protobuf:"bytes,1,rep,name=quotas,proto3" json:"quotas,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// children become the child's own defaults, for the nodes created under it.
+	Children      *Defaults `protobuf:"bytes,2,opt,name=children,proto3" json:"children,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Defaults) Reset() {
+	*x = Defaults{}
+	mi := &file_governor_v1_governor_proto_msgTypes[1]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Defaults) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Defaults) ProtoMessage() {}
+
+func (x *Defaults) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[1]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Defaults.ProtoReflect.Descriptor instead.
+func (*Defaults) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{1}
+}
+
+func (x *Defaults) GetQuotas() map[string]int64 {
+	if x != nil {
+		return x.Quotas
+	}
+	return nil
+}
+
+func (x *Defaults) GetChildren() *Defaults {
+	if x != nil {
+		return x.Children
+	}
+	return nil
+}
+
+// Node describes one node of the tree.
+type Node struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Id    uint64                 `protobuf:"varint,1,opt,name=id,proto3" json:"id,omitempty"`
+	// parent_id is zero for the root.
+	ParentId uint64 `protobuf:"varint,2,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
+	Name     string `protobuf:"bytes,3,opt,name=name,proto3" json:"name,omitempty"`
+	State    State  `protobuf:"varint,4,opt,name=state,proto3,enum=governor.v1.State" json:"state,omitempty"`
+	// deadline is the effective deadline; unset means none.
+	Deadline *timestamppb.Timestamp `protobuf:"bytes,5,opt,name=deadline,proto3" json:"deadline,omitempty"`
+	// ended_at is unset while the node is active.
+	EndedAt *timestamppb.Timestamp `protobuf:"bytes,6,opt,name=ended_at,json=endedAt,proto3" json:"ended_at,omitempty"`
+	// quotas and limits are the node's own caps; used and held count its whole subtree.
+	Quotas map[string]int64 `protobuf:"bytes,7,rep,name=quotas,proto3" json:"quotas,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Used   map[string]int64 `protobuf:"bytes,8,rep,name=used,proto3" json:"used,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Limits map[string]int64 `protobuf:"bytes,9,rep,name=limits,proto3" json:"limits,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	Held   map[string]int64 `protobuf:"bytes,10,rep,name=held,proto3" json:"held,omitempty" protobuf_key:"bytes,1,opt,name=key" protobuf_val:"varint,2,opt,name=value"`
+	// defaults is what each new child starts with; unset means nothing.
+	Defaults *Defaults `protobuf:"bytes,11,opt,name=defaults,proto3" json:"defaults,omitempty"`
+	// child_count is how many children the node has.
+	ChildCount    int64 `protobuf:"varint,12,opt,name=child_count,json=childCount,proto3" json:"child_count,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *Node) Reset() {
+	*x = Node{}
+	mi := &file_governor_v1_governor_proto_msgTypes[2]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *Node) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*Node) ProtoMessage() {}
+
+func (x *Node) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[2]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use Node.ProtoReflect.Descriptor instead.
+func (*Node) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{2}
+}
+
+func (x *Node) GetId() uint64 {
+	if x != nil {
+		return x.Id
+	}
+	return 0
+}
+
+func (x *Node) GetParentId() uint64 {
+	if x != nil {
+		return x.ParentId
+	}
+	return 0
+}
+
+func (x *Node) GetName() string {
+	if x != nil {
+		return x.Name
+	}
+	return ""
+}
+
+func (x *Node) GetState() State {
+	if x != nil {
+		return x.State
+	}
+	return State_STATE_UNSPECIFIED
+}
+
+func (x *Node) GetDeadline() *timestamppb.Timestamp {
+	if x != nil {
+		return x.Deadline
+	}
+	return nil
+}
+
+func (x *Node) GetEndedAt() *timestamppb.Timestamp {
+	if x != nil {
+		return x.EndedAt
+	}
+	return nil
+}
+
+func (x *Node) GetQuotas() map[string]int64 {
+	if x != nil {
+		return x.Quotas
+	}
+	return nil
+}
+
+func (x *Node) GetUsed() map[string]int64 {
+	if x != nil {
+		return x.Used
+	}
+	return nil
+}
+
+func (x *Node) GetLimits() map[string]int64 {
+	if x != nil {
+		return x.Limits
+	}
+	return nil
+}
+
+func (x *Node) GetHeld() map[string]int64 {
+	if x != nil {
+		return x.Held
+	}
+	return nil
+}
+
+func (x *Node) GetDefaults() *Defaults {
+	if x != nil {
+		return x.Defaults
+	}
+	return nil
+}
+
+func (x *Node) GetChildCount() int64 {
+	if x != nil {
+		return x.ChildCount
+	}
+	return 0
+}
+
 // ErrorDetail is attached to the status of every failed call.
 type ErrorDetail struct {
 	state  protoimpl.MessageState `protogen:"open.v1"`
@@ -259,7 +453,7 @@ type ErrorDetail struct {
 
 func (x *ErrorDetail) Reset() {
 	*x = ErrorDetail{}
-	mi := &file_governor_v1_governor_proto_msgTypes[1]
+	mi := &file_governor_v1_governor_proto_msgTypes[3]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -271,7 +465,7 @@ func (x *ErrorDetail) String() string {
 func (*ErrorDetail) ProtoMessage() {}
 
 func (x *ErrorDetail) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[1]
+	mi := &file_governor_v1_governor_proto_msgTypes[3]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -284,7 +478,7 @@ func (x *ErrorDetail) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ErrorDetail.ProtoReflect.Descriptor instead.
 func (*ErrorDetail) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{1}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{3}
 }
 
 func (x *ErrorDetail) GetReason() Reason {
@@ -321,7 +515,7 @@ type Denial struct {
 
 func (x *Denial) Reset() {
 	*x = Denial{}
-	mi := &file_governor_v1_governor_proto_msgTypes[2]
+	mi := &file_governor_v1_governor_proto_msgTypes[4]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -333,7 +527,7 @@ func (x *Denial) String() string {
 func (*Denial) ProtoMessage() {}
 
 func (x *Denial) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[2]
+	mi := &file_governor_v1_governor_proto_msgTypes[4]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -346,7 +540,7 @@ func (x *Denial) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use Denial.ProtoReflect.Descriptor instead.
 func (*Denial) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{2}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{4}
 }
 
 func (x *Denial) GetNodeId() uint64 {
@@ -424,7 +618,7 @@ type CreateNodeRequest struct {
 
 func (x *CreateNodeRequest) Reset() {
 	*x = CreateNodeRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[3]
+	mi := &file_governor_v1_governor_proto_msgTypes[5]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -436,7 +630,7 @@ func (x *CreateNodeRequest) String() string {
 func (*CreateNodeRequest) ProtoMessage() {}
 
 func (x *CreateNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[3]
+	mi := &file_governor_v1_governor_proto_msgTypes[5]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -449,7 +643,7 @@ func (x *CreateNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateNodeRequest.ProtoReflect.Descriptor instead.
 func (*CreateNodeRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{3}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{5}
 }
 
 func (x *CreateNodeRequest) GetRequestId() string {
@@ -482,7 +676,7 @@ type CreateNodeResponse struct {
 
 func (x *CreateNodeResponse) Reset() {
 	*x = CreateNodeResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[4]
+	mi := &file_governor_v1_governor_proto_msgTypes[6]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -494,7 +688,7 @@ func (x *CreateNodeResponse) String() string {
 func (*CreateNodeResponse) ProtoMessage() {}
 
 func (x *CreateNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[4]
+	mi := &file_governor_v1_governor_proto_msgTypes[6]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -507,7 +701,7 @@ func (x *CreateNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CreateNodeResponse.ProtoReflect.Descriptor instead.
 func (*CreateNodeResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{4}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{6}
 }
 
 func (x *CreateNodeResponse) GetNodeId() uint64 {
@@ -532,7 +726,7 @@ type EnsureNodeRequest struct {
 
 func (x *EnsureNodeRequest) Reset() {
 	*x = EnsureNodeRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[5]
+	mi := &file_governor_v1_governor_proto_msgTypes[7]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -544,7 +738,7 @@ func (x *EnsureNodeRequest) String() string {
 func (*EnsureNodeRequest) ProtoMessage() {}
 
 func (x *EnsureNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[5]
+	mi := &file_governor_v1_governor_proto_msgTypes[7]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -557,7 +751,7 @@ func (x *EnsureNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureNodeRequest.ProtoReflect.Descriptor instead.
 func (*EnsureNodeRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{5}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{7}
 }
 
 func (x *EnsureNodeRequest) GetParentId() uint64 {
@@ -599,7 +793,7 @@ type EnsureNodeResponse struct {
 
 func (x *EnsureNodeResponse) Reset() {
 	*x = EnsureNodeResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[6]
+	mi := &file_governor_v1_governor_proto_msgTypes[8]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -611,7 +805,7 @@ func (x *EnsureNodeResponse) String() string {
 func (*EnsureNodeResponse) ProtoMessage() {}
 
 func (x *EnsureNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[6]
+	mi := &file_governor_v1_governor_proto_msgTypes[8]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -624,7 +818,7 @@ func (x *EnsureNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use EnsureNodeResponse.ProtoReflect.Descriptor instead.
 func (*EnsureNodeResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{6}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{8}
 }
 
 func (x *EnsureNodeResponse) GetNodeId() uint64 {
@@ -654,7 +848,7 @@ type ConsumeRequest struct {
 
 func (x *ConsumeRequest) Reset() {
 	*x = ConsumeRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[7]
+	mi := &file_governor_v1_governor_proto_msgTypes[9]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -666,7 +860,7 @@ func (x *ConsumeRequest) String() string {
 func (*ConsumeRequest) ProtoMessage() {}
 
 func (x *ConsumeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[7]
+	mi := &file_governor_v1_governor_proto_msgTypes[9]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -679,7 +873,7 @@ func (x *ConsumeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsumeRequest.ProtoReflect.Descriptor instead.
 func (*ConsumeRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{7}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{9}
 }
 
 func (x *ConsumeRequest) GetRequestId() string {
@@ -718,7 +912,7 @@ type ConsumeResponse struct {
 
 func (x *ConsumeResponse) Reset() {
 	*x = ConsumeResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[8]
+	mi := &file_governor_v1_governor_proto_msgTypes[10]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -730,7 +924,7 @@ func (x *ConsumeResponse) String() string {
 func (*ConsumeResponse) ProtoMessage() {}
 
 func (x *ConsumeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[8]
+	mi := &file_governor_v1_governor_proto_msgTypes[10]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -743,7 +937,7 @@ func (x *ConsumeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ConsumeResponse.ProtoReflect.Descriptor instead.
 func (*ConsumeResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{8}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{10}
 }
 
 type CancelNodeRequest struct {
@@ -755,7 +949,7 @@ type CancelNodeRequest struct {
 
 func (x *CancelNodeRequest) Reset() {
 	*x = CancelNodeRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[9]
+	mi := &file_governor_v1_governor_proto_msgTypes[11]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -767,7 +961,7 @@ func (x *CancelNodeRequest) String() string {
 func (*CancelNodeRequest) ProtoMessage() {}
 
 func (x *CancelNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[9]
+	mi := &file_governor_v1_governor_proto_msgTypes[11]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -780,7 +974,7 @@ func (x *CancelNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelNodeRequest.ProtoReflect.Descriptor instead.
 func (*CancelNodeRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{9}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{11}
 }
 
 func (x *CancelNodeRequest) GetNodeId() uint64 {
@@ -798,7 +992,7 @@ type CancelNodeResponse struct {
 
 func (x *CancelNodeResponse) Reset() {
 	*x = CancelNodeResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[10]
+	mi := &file_governor_v1_governor_proto_msgTypes[12]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -810,7 +1004,7 @@ func (x *CancelNodeResponse) String() string {
 func (*CancelNodeResponse) ProtoMessage() {}
 
 func (x *CancelNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[10]
+	mi := &file_governor_v1_governor_proto_msgTypes[12]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -823,7 +1017,7 @@ func (x *CancelNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CancelNodeResponse.ProtoReflect.Descriptor instead.
 func (*CancelNodeResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{10}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{12}
 }
 
 type CloseNodeRequest struct {
@@ -835,7 +1029,7 @@ type CloseNodeRequest struct {
 
 func (x *CloseNodeRequest) Reset() {
 	*x = CloseNodeRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[11]
+	mi := &file_governor_v1_governor_proto_msgTypes[13]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -847,7 +1041,7 @@ func (x *CloseNodeRequest) String() string {
 func (*CloseNodeRequest) ProtoMessage() {}
 
 func (x *CloseNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[11]
+	mi := &file_governor_v1_governor_proto_msgTypes[13]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -860,7 +1054,7 @@ func (x *CloseNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseNodeRequest.ProtoReflect.Descriptor instead.
 func (*CloseNodeRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{11}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{13}
 }
 
 func (x *CloseNodeRequest) GetNodeId() uint64 {
@@ -878,7 +1072,7 @@ type CloseNodeResponse struct {
 
 func (x *CloseNodeResponse) Reset() {
 	*x = CloseNodeResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[12]
+	mi := &file_governor_v1_governor_proto_msgTypes[14]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -890,7 +1084,7 @@ func (x *CloseNodeResponse) String() string {
 func (*CloseNodeResponse) ProtoMessage() {}
 
 func (x *CloseNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[12]
+	mi := &file_governor_v1_governor_proto_msgTypes[14]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -903,7 +1097,7 @@ func (x *CloseNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseNodeResponse.ProtoReflect.Descriptor instead.
 func (*CloseNodeResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{12}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{14}
 }
 
 type WatchNodeRequest struct {
@@ -915,7 +1109,7 @@ type WatchNodeRequest struct {
 
 func (x *WatchNodeRequest) Reset() {
 	*x = WatchNodeRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[13]
+	mi := &file_governor_v1_governor_proto_msgTypes[15]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -927,7 +1121,7 @@ func (x *WatchNodeRequest) String() string {
 func (*WatchNodeRequest) ProtoMessage() {}
 
 func (x *WatchNodeRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[13]
+	mi := &file_governor_v1_governor_proto_msgTypes[15]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -940,7 +1134,7 @@ func (x *WatchNodeRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchNodeRequest.ProtoReflect.Descriptor instead.
 func (*WatchNodeRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{13}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{15}
 }
 
 func (x *WatchNodeRequest) GetNodeId() uint64 {
@@ -960,7 +1154,7 @@ type WatchNodeResponse struct {
 
 func (x *WatchNodeResponse) Reset() {
 	*x = WatchNodeResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[14]
+	mi := &file_governor_v1_governor_proto_msgTypes[16]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -972,7 +1166,7 @@ func (x *WatchNodeResponse) String() string {
 func (*WatchNodeResponse) ProtoMessage() {}
 
 func (x *WatchNodeResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[14]
+	mi := &file_governor_v1_governor_proto_msgTypes[16]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -985,7 +1179,7 @@ func (x *WatchNodeResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use WatchNodeResponse.ProtoReflect.Descriptor instead.
 func (*WatchNodeResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{14}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{16}
 }
 
 func (x *WatchNodeResponse) GetState() State {
@@ -993,6 +1187,388 @@ func (x *WatchNodeResponse) GetState() State {
 		return x.State
 	}
 	return State_STATE_UNSPECIFIED
+}
+
+type GetNodeRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// node_id of zero means the node the caller is confined to.
+	NodeId        uint64 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetNodeRequest) Reset() {
+	*x = GetNodeRequest{}
+	mi := &file_governor_v1_governor_proto_msgTypes[17]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetNodeRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetNodeRequest) ProtoMessage() {}
+
+func (x *GetNodeRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[17]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetNodeRequest.ProtoReflect.Descriptor instead.
+func (*GetNodeRequest) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{17}
+}
+
+func (x *GetNodeRequest) GetNodeId() uint64 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+type GetNodeResponse struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	Node  *Node                  `protobuf:"bytes,1,opt,name=node,proto3" json:"node,omitempty"`
+	// children are ordered by id.
+	Children      []*Node `protobuf:"bytes,2,rep,name=children,proto3" json:"children,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *GetNodeResponse) Reset() {
+	*x = GetNodeResponse{}
+	mi := &file_governor_v1_governor_proto_msgTypes[18]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *GetNodeResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*GetNodeResponse) ProtoMessage() {}
+
+func (x *GetNodeResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[18]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use GetNodeResponse.ProtoReflect.Descriptor instead.
+func (*GetNodeResponse) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{18}
+}
+
+func (x *GetNodeResponse) GetNode() *Node {
+	if x != nil {
+		return x.Node
+	}
+	return nil
+}
+
+func (x *GetNodeResponse) GetChildren() []*Node {
+	if x != nil {
+		return x.Children
+	}
+	return nil
+}
+
+type SetQuotaRequest struct {
+	state    protoimpl.MessageState `protogen:"open.v1"`
+	NodeId   uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Resource string                 `protobuf:"bytes,2,opt,name=resource,proto3" json:"resource,omitempty"`
+	// limit is the new cap; leaving it unset removes the cap.
+	Limit         *int64 `protobuf:"varint,3,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetQuotaRequest) Reset() {
+	*x = SetQuotaRequest{}
+	mi := &file_governor_v1_governor_proto_msgTypes[19]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetQuotaRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetQuotaRequest) ProtoMessage() {}
+
+func (x *SetQuotaRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[19]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetQuotaRequest.ProtoReflect.Descriptor instead.
+func (*SetQuotaRequest) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{19}
+}
+
+func (x *SetQuotaRequest) GetNodeId() uint64 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+func (x *SetQuotaRequest) GetResource() string {
+	if x != nil {
+		return x.Resource
+	}
+	return ""
+}
+
+func (x *SetQuotaRequest) GetLimit() int64 {
+	if x != nil && x.Limit != nil {
+		return *x.Limit
+	}
+	return 0
+}
+
+type SetQuotaResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetQuotaResponse) Reset() {
+	*x = SetQuotaResponse{}
+	mi := &file_governor_v1_governor_proto_msgTypes[20]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetQuotaResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetQuotaResponse) ProtoMessage() {}
+
+func (x *SetQuotaResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[20]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetQuotaResponse.ProtoReflect.Descriptor instead.
+func (*SetQuotaResponse) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{20}
+}
+
+type SetLimitRequest struct {
+	state  protoimpl.MessageState `protogen:"open.v1"`
+	NodeId uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Class  string                 `protobuf:"bytes,2,opt,name=class,proto3" json:"class,omitempty"`
+	// limit is the new cap; leaving it unset removes the cap.
+	Limit         *int64 `protobuf:"varint,3,opt,name=limit,proto3,oneof" json:"limit,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetLimitRequest) Reset() {
+	*x = SetLimitRequest{}
+	mi := &file_governor_v1_governor_proto_msgTypes[21]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetLimitRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetLimitRequest) ProtoMessage() {}
+
+func (x *SetLimitRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[21]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetLimitRequest.ProtoReflect.Descriptor instead.
+func (*SetLimitRequest) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{21}
+}
+
+func (x *SetLimitRequest) GetNodeId() uint64 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+func (x *SetLimitRequest) GetClass() string {
+	if x != nil {
+		return x.Class
+	}
+	return ""
+}
+
+func (x *SetLimitRequest) GetLimit() int64 {
+	if x != nil && x.Limit != nil {
+		return *x.Limit
+	}
+	return 0
+}
+
+type SetLimitResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetLimitResponse) Reset() {
+	*x = SetLimitResponse{}
+	mi := &file_governor_v1_governor_proto_msgTypes[22]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetLimitResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetLimitResponse) ProtoMessage() {}
+
+func (x *SetLimitResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[22]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetLimitResponse.ProtoReflect.Descriptor instead.
+func (*SetLimitResponse) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{22}
+}
+
+type SetDefaultsRequest struct {
+	state protoimpl.MessageState `protogen:"open.v1"`
+	// node_id of zero means the node the caller is confined to.
+	NodeId uint64 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	// defaults replaces the node's defaults; leaving it unset clears them.
+	Defaults      *Defaults `protobuf:"bytes,2,opt,name=defaults,proto3" json:"defaults,omitempty"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetDefaultsRequest) Reset() {
+	*x = SetDefaultsRequest{}
+	mi := &file_governor_v1_governor_proto_msgTypes[23]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetDefaultsRequest) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetDefaultsRequest) ProtoMessage() {}
+
+func (x *SetDefaultsRequest) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[23]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetDefaultsRequest.ProtoReflect.Descriptor instead.
+func (*SetDefaultsRequest) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{23}
+}
+
+func (x *SetDefaultsRequest) GetNodeId() uint64 {
+	if x != nil {
+		return x.NodeId
+	}
+	return 0
+}
+
+func (x *SetDefaultsRequest) GetDefaults() *Defaults {
+	if x != nil {
+		return x.Defaults
+	}
+	return nil
+}
+
+type SetDefaultsResponse struct {
+	state         protoimpl.MessageState `protogen:"open.v1"`
+	unknownFields protoimpl.UnknownFields
+	sizeCache     protoimpl.SizeCache
+}
+
+func (x *SetDefaultsResponse) Reset() {
+	*x = SetDefaultsResponse{}
+	mi := &file_governor_v1_governor_proto_msgTypes[24]
+	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+	ms.StoreMessageInfo(mi)
+}
+
+func (x *SetDefaultsResponse) String() string {
+	return protoimpl.X.MessageStringOf(x)
+}
+
+func (*SetDefaultsResponse) ProtoMessage() {}
+
+func (x *SetDefaultsResponse) ProtoReflect() protoreflect.Message {
+	mi := &file_governor_v1_governor_proto_msgTypes[24]
+	if x != nil {
+		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
+		if ms.LoadMessageInfo() == nil {
+			ms.StoreMessageInfo(mi)
+		}
+		return ms
+	}
+	return mi.MessageOf(x)
+}
+
+// Deprecated: Use SetDefaultsResponse.ProtoReflect.Descriptor instead.
+func (*SetDefaultsResponse) Descriptor() ([]byte, []int) {
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{24}
 }
 
 type OpenSessionRequest struct {
@@ -1005,7 +1581,7 @@ type OpenSessionRequest struct {
 
 func (x *OpenSessionRequest) Reset() {
 	*x = OpenSessionRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[15]
+	mi := &file_governor_v1_governor_proto_msgTypes[25]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1017,7 +1593,7 @@ func (x *OpenSessionRequest) String() string {
 func (*OpenSessionRequest) ProtoMessage() {}
 
 func (x *OpenSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[15]
+	mi := &file_governor_v1_governor_proto_msgTypes[25]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1030,7 +1606,7 @@ func (x *OpenSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenSessionRequest.ProtoReflect.Descriptor instead.
 func (*OpenSessionRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{15}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{25}
 }
 
 func (x *OpenSessionRequest) GetTtl() *durationpb.Duration {
@@ -1054,7 +1630,7 @@ type OpenSessionResponse struct {
 
 func (x *OpenSessionResponse) Reset() {
 	*x = OpenSessionResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[16]
+	mi := &file_governor_v1_governor_proto_msgTypes[26]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1066,7 +1642,7 @@ func (x *OpenSessionResponse) String() string {
 func (*OpenSessionResponse) ProtoMessage() {}
 
 func (x *OpenSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[16]
+	mi := &file_governor_v1_governor_proto_msgTypes[26]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1079,7 +1655,7 @@ func (x *OpenSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use OpenSessionResponse.ProtoReflect.Descriptor instead.
 func (*OpenSessionResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{16}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{26}
 }
 
 func (x *OpenSessionResponse) GetSessionToken() string {
@@ -1111,7 +1687,7 @@ type HeartbeatRequest struct {
 
 func (x *HeartbeatRequest) Reset() {
 	*x = HeartbeatRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[17]
+	mi := &file_governor_v1_governor_proto_msgTypes[27]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1123,7 +1699,7 @@ func (x *HeartbeatRequest) String() string {
 func (*HeartbeatRequest) ProtoMessage() {}
 
 func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[17]
+	mi := &file_governor_v1_governor_proto_msgTypes[27]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1136,7 +1712,7 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{17}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{27}
 }
 
 type HeartbeatResponse struct {
@@ -1148,7 +1724,7 @@ type HeartbeatResponse struct {
 
 func (x *HeartbeatResponse) Reset() {
 	*x = HeartbeatResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[18]
+	mi := &file_governor_v1_governor_proto_msgTypes[28]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1160,7 +1736,7 @@ func (x *HeartbeatResponse) String() string {
 func (*HeartbeatResponse) ProtoMessage() {}
 
 func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[18]
+	mi := &file_governor_v1_governor_proto_msgTypes[28]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1173,7 +1749,7 @@ func (x *HeartbeatResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use HeartbeatResponse.ProtoReflect.Descriptor instead.
 func (*HeartbeatResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{18}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{28}
 }
 
 func (x *HeartbeatResponse) GetExpiresAt() *timestamppb.Timestamp {
@@ -1191,7 +1767,7 @@ type CloseSessionRequest struct {
 
 func (x *CloseSessionRequest) Reset() {
 	*x = CloseSessionRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[19]
+	mi := &file_governor_v1_governor_proto_msgTypes[29]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1203,7 +1779,7 @@ func (x *CloseSessionRequest) String() string {
 func (*CloseSessionRequest) ProtoMessage() {}
 
 func (x *CloseSessionRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[19]
+	mi := &file_governor_v1_governor_proto_msgTypes[29]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1216,7 +1792,7 @@ func (x *CloseSessionRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseSessionRequest.ProtoReflect.Descriptor instead.
 func (*CloseSessionRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{19}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{29}
 }
 
 type CloseSessionResponse struct {
@@ -1227,7 +1803,7 @@ type CloseSessionResponse struct {
 
 func (x *CloseSessionResponse) Reset() {
 	*x = CloseSessionResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[20]
+	mi := &file_governor_v1_governor_proto_msgTypes[30]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1239,7 +1815,7 @@ func (x *CloseSessionResponse) String() string {
 func (*CloseSessionResponse) ProtoMessage() {}
 
 func (x *CloseSessionResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[20]
+	mi := &file_governor_v1_governor_proto_msgTypes[30]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1252,7 +1828,7 @@ func (x *CloseSessionResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use CloseSessionResponse.ProtoReflect.Descriptor instead.
 func (*CloseSessionResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{20}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{30}
 }
 
 type AcquireRequest struct {
@@ -1269,7 +1845,7 @@ type AcquireRequest struct {
 
 func (x *AcquireRequest) Reset() {
 	*x = AcquireRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[21]
+	mi := &file_governor_v1_governor_proto_msgTypes[31]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1281,7 +1857,7 @@ func (x *AcquireRequest) String() string {
 func (*AcquireRequest) ProtoMessage() {}
 
 func (x *AcquireRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[21]
+	mi := &file_governor_v1_governor_proto_msgTypes[31]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1294,7 +1870,7 @@ func (x *AcquireRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcquireRequest.ProtoReflect.Descriptor instead.
 func (*AcquireRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{21}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{31}
 }
 
 func (x *AcquireRequest) GetRequestId() string {
@@ -1335,7 +1911,7 @@ type AcquireResponse struct {
 
 func (x *AcquireResponse) Reset() {
 	*x = AcquireResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[22]
+	mi := &file_governor_v1_governor_proto_msgTypes[32]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1347,7 +1923,7 @@ func (x *AcquireResponse) String() string {
 func (*AcquireResponse) ProtoMessage() {}
 
 func (x *AcquireResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[22]
+	mi := &file_governor_v1_governor_proto_msgTypes[32]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1360,7 +1936,7 @@ func (x *AcquireResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use AcquireResponse.ProtoReflect.Descriptor instead.
 func (*AcquireResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{22}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{32}
 }
 
 func (x *AcquireResponse) GetLeaseId() uint64 {
@@ -1383,7 +1959,7 @@ type ReleaseRequest struct {
 
 func (x *ReleaseRequest) Reset() {
 	*x = ReleaseRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[23]
+	mi := &file_governor_v1_governor_proto_msgTypes[33]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1395,7 +1971,7 @@ func (x *ReleaseRequest) String() string {
 func (*ReleaseRequest) ProtoMessage() {}
 
 func (x *ReleaseRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[23]
+	mi := &file_governor_v1_governor_proto_msgTypes[33]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1408,7 +1984,7 @@ func (x *ReleaseRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseRequest.ProtoReflect.Descriptor instead.
 func (*ReleaseRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{23}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{33}
 }
 
 func (x *ReleaseRequest) GetLeaseId() uint64 {
@@ -1440,7 +2016,7 @@ type ReleaseResponse struct {
 
 func (x *ReleaseResponse) Reset() {
 	*x = ReleaseResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[24]
+	mi := &file_governor_v1_governor_proto_msgTypes[34]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1452,7 +2028,7 @@ func (x *ReleaseResponse) String() string {
 func (*ReleaseResponse) ProtoMessage() {}
 
 func (x *ReleaseResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[24]
+	mi := &file_governor_v1_governor_proto_msgTypes[34]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1465,7 +2041,7 @@ func (x *ReleaseResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ReleaseResponse.ProtoReflect.Descriptor instead.
 func (*ReleaseResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{24}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{34}
 }
 
 type ValidateRequest struct {
@@ -1477,7 +2053,7 @@ type ValidateRequest struct {
 
 func (x *ValidateRequest) Reset() {
 	*x = ValidateRequest{}
-	mi := &file_governor_v1_governor_proto_msgTypes[25]
+	mi := &file_governor_v1_governor_proto_msgTypes[35]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1489,7 +2065,7 @@ func (x *ValidateRequest) String() string {
 func (*ValidateRequest) ProtoMessage() {}
 
 func (x *ValidateRequest) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[25]
+	mi := &file_governor_v1_governor_proto_msgTypes[35]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1502,7 +2078,7 @@ func (x *ValidateRequest) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateRequest.ProtoReflect.Descriptor instead.
 func (*ValidateRequest) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{25}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{35}
 }
 
 func (x *ValidateRequest) GetLeaseId() uint64 {
@@ -1520,7 +2096,7 @@ type ValidateResponse struct {
 
 func (x *ValidateResponse) Reset() {
 	*x = ValidateResponse{}
-	mi := &file_governor_v1_governor_proto_msgTypes[26]
+	mi := &file_governor_v1_governor_proto_msgTypes[36]
 	ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 	ms.StoreMessageInfo(mi)
 }
@@ -1532,7 +2108,7 @@ func (x *ValidateResponse) String() string {
 func (*ValidateResponse) ProtoMessage() {}
 
 func (x *ValidateResponse) ProtoReflect() protoreflect.Message {
-	mi := &file_governor_v1_governor_proto_msgTypes[26]
+	mi := &file_governor_v1_governor_proto_msgTypes[36]
 	if x != nil {
 		ms := protoimpl.X.MessageStateOf(protoimpl.Pointer(x))
 		if ms.LoadMessageInfo() == nil {
@@ -1545,7 +2121,7 @@ func (x *ValidateResponse) ProtoReflect() protoreflect.Message {
 
 // Deprecated: Use ValidateResponse.ProtoReflect.Descriptor instead.
 func (*ValidateResponse) Descriptor() ([]byte, []int) {
-	return file_governor_v1_governor_proto_rawDescGZIP(), []int{26}
+	return file_governor_v1_governor_proto_rawDescGZIP(), []int{36}
 }
 
 var File_governor_v1_governor_proto protoreflect.FileDescriptor
@@ -1564,6 +2140,39 @@ const file_governor_v1_governor_proto_rawDesc = "" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a9\n" +
 	"\vLimitsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xb3\x01\n" +
+	"\bDefaults\x129\n" +
+	"\x06quotas\x18\x01 \x03(\v2!.governor.v1.Defaults.QuotasEntryR\x06quotas\x121\n" +
+	"\bchildren\x18\x02 \x01(\v2\x15.governor.v1.DefaultsR\bchildren\x1a9\n" +
+	"\vQuotasEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"\xec\x05\n" +
+	"\x04Node\x12\x0e\n" +
+	"\x02id\x18\x01 \x01(\x04R\x02id\x12\x1b\n" +
+	"\tparent_id\x18\x02 \x01(\x04R\bparentId\x12\x12\n" +
+	"\x04name\x18\x03 \x01(\tR\x04name\x12(\n" +
+	"\x05state\x18\x04 \x01(\x0e2\x12.governor.v1.StateR\x05state\x126\n" +
+	"\bdeadline\x18\x05 \x01(\v2\x1a.google.protobuf.TimestampR\bdeadline\x125\n" +
+	"\bended_at\x18\x06 \x01(\v2\x1a.google.protobuf.TimestampR\aendedAt\x125\n" +
+	"\x06quotas\x18\a \x03(\v2\x1d.governor.v1.Node.QuotasEntryR\x06quotas\x12/\n" +
+	"\x04used\x18\b \x03(\v2\x1b.governor.v1.Node.UsedEntryR\x04used\x125\n" +
+	"\x06limits\x18\t \x03(\v2\x1d.governor.v1.Node.LimitsEntryR\x06limits\x12/\n" +
+	"\x04held\x18\n" +
+	" \x03(\v2\x1b.governor.v1.Node.HeldEntryR\x04held\x121\n" +
+	"\bdefaults\x18\v \x01(\v2\x15.governor.v1.DefaultsR\bdefaults\x12\x1f\n" +
+	"\vchild_count\x18\f \x01(\x03R\n" +
+	"childCount\x1a9\n" +
+	"\vQuotasEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a7\n" +
+	"\tUsedEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a9\n" +
+	"\vLimitsEntry\x12\x10\n" +
+	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
+	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\x1a7\n" +
+	"\tHeldEntry\x12\x10\n" +
 	"\x03key\x18\x01 \x01(\tR\x03key\x12\x14\n" +
 	"\x05value\x18\x02 \x01(\x03R\x05value:\x028\x01\"g\n" +
 	"\vErrorDetail\x12+\n" +
@@ -1610,7 +2219,28 @@ const file_governor_v1_governor_proto_rawDesc = "" +
 	"\x10WatchNodeRequest\x12\x17\n" +
 	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\"=\n" +
 	"\x11WatchNodeResponse\x12(\n" +
-	"\x05state\x18\x01 \x01(\x0e2\x12.governor.v1.StateR\x05state\"A\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x12.governor.v1.StateR\x05state\")\n" +
+	"\x0eGetNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\"g\n" +
+	"\x0fGetNodeResponse\x12%\n" +
+	"\x04node\x18\x01 \x01(\v2\x11.governor.v1.NodeR\x04node\x12-\n" +
+	"\bchildren\x18\x02 \x03(\v2\x11.governor.v1.NodeR\bchildren\"k\n" +
+	"\x0fSetQuotaRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x1a\n" +
+	"\bresource\x18\x02 \x01(\tR\bresource\x12\x19\n" +
+	"\x05limit\x18\x03 \x01(\x03H\x00R\x05limit\x88\x01\x01B\b\n" +
+	"\x06_limit\"\x12\n" +
+	"\x10SetQuotaResponse\"e\n" +
+	"\x0fSetLimitRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x12\x14\n" +
+	"\x05class\x18\x02 \x01(\tR\x05class\x12\x19\n" +
+	"\x05limit\x18\x03 \x01(\x03H\x00R\x05limit\x88\x01\x01B\b\n" +
+	"\x06_limit\"\x12\n" +
+	"\x10SetLimitResponse\"`\n" +
+	"\x12SetDefaultsRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\x121\n" +
+	"\bdefaults\x18\x02 \x01(\v2\x15.governor.v1.DefaultsR\bdefaults\"\x15\n" +
+	"\x13SetDefaultsResponse\"A\n" +
 	"\x12OpenSessionRequest\x12+\n" +
 	"\x03ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\"\x90\x01\n" +
 	"\x13OpenSessionResponse\x12#\n" +
@@ -1662,7 +2292,7 @@ const file_governor_v1_governor_proto_rawDesc = "" +
 	"\rREASON_CLOSED\x10\t\x12\x14\n" +
 	"\x10REASON_FORBIDDEN\x10\n" +
 	"\x12\x16\n" +
-	"\x12REASON_BAD_API_KEY\x10\v2\xa6\a\n" +
+	"\x12REASON_BAD_API_KEY\x10\v2\xd0\t\n" +
 	"\x0fGovernorService\x12M\n" +
 	"\n" +
 	"CreateNode\x12\x1e.governor.v1.CreateNodeRequest\x1a\x1f.governor.v1.CreateNodeResponse\x12M\n" +
@@ -1672,7 +2302,11 @@ const file_governor_v1_governor_proto_rawDesc = "" +
 	"\n" +
 	"CancelNode\x12\x1e.governor.v1.CancelNodeRequest\x1a\x1f.governor.v1.CancelNodeResponse\x12J\n" +
 	"\tCloseNode\x12\x1d.governor.v1.CloseNodeRequest\x1a\x1e.governor.v1.CloseNodeResponse\x12L\n" +
-	"\tWatchNode\x12\x1d.governor.v1.WatchNodeRequest\x1a\x1e.governor.v1.WatchNodeResponse0\x01\x12P\n" +
+	"\tWatchNode\x12\x1d.governor.v1.WatchNodeRequest\x1a\x1e.governor.v1.WatchNodeResponse0\x01\x12D\n" +
+	"\aGetNode\x12\x1b.governor.v1.GetNodeRequest\x1a\x1c.governor.v1.GetNodeResponse\x12G\n" +
+	"\bSetQuota\x12\x1c.governor.v1.SetQuotaRequest\x1a\x1d.governor.v1.SetQuotaResponse\x12G\n" +
+	"\bSetLimit\x12\x1c.governor.v1.SetLimitRequest\x1a\x1d.governor.v1.SetLimitResponse\x12P\n" +
+	"\vSetDefaults\x12\x1f.governor.v1.SetDefaultsRequest\x1a .governor.v1.SetDefaultsResponse\x12P\n" +
 	"\vOpenSession\x12\x1f.governor.v1.OpenSessionRequest\x1a .governor.v1.OpenSessionResponse\x12J\n" +
 	"\tHeartbeat\x12\x1d.governor.v1.HeartbeatRequest\x1a\x1e.governor.v1.HeartbeatResponse\x12S\n" +
 	"\fCloseSession\x12 .governor.v1.CloseSessionRequest\x1a!.governor.v1.CloseSessionResponse\x12D\n" +
@@ -1693,85 +2327,121 @@ func file_governor_v1_governor_proto_rawDescGZIP() []byte {
 }
 
 var file_governor_v1_governor_proto_enumTypes = make([]protoimpl.EnumInfo, 2)
-var file_governor_v1_governor_proto_msgTypes = make([]protoimpl.MessageInfo, 29)
+var file_governor_v1_governor_proto_msgTypes = make([]protoimpl.MessageInfo, 44)
 var file_governor_v1_governor_proto_goTypes = []any{
 	(State)(0),                    // 0: governor.v1.State
 	(Reason)(0),                   // 1: governor.v1.Reason
 	(*Spec)(nil),                  // 2: governor.v1.Spec
-	(*ErrorDetail)(nil),           // 3: governor.v1.ErrorDetail
-	(*Denial)(nil),                // 4: governor.v1.Denial
-	(*CreateNodeRequest)(nil),     // 5: governor.v1.CreateNodeRequest
-	(*CreateNodeResponse)(nil),    // 6: governor.v1.CreateNodeResponse
-	(*EnsureNodeRequest)(nil),     // 7: governor.v1.EnsureNodeRequest
-	(*EnsureNodeResponse)(nil),    // 8: governor.v1.EnsureNodeResponse
-	(*ConsumeRequest)(nil),        // 9: governor.v1.ConsumeRequest
-	(*ConsumeResponse)(nil),       // 10: governor.v1.ConsumeResponse
-	(*CancelNodeRequest)(nil),     // 11: governor.v1.CancelNodeRequest
-	(*CancelNodeResponse)(nil),    // 12: governor.v1.CancelNodeResponse
-	(*CloseNodeRequest)(nil),      // 13: governor.v1.CloseNodeRequest
-	(*CloseNodeResponse)(nil),     // 14: governor.v1.CloseNodeResponse
-	(*WatchNodeRequest)(nil),      // 15: governor.v1.WatchNodeRequest
-	(*WatchNodeResponse)(nil),     // 16: governor.v1.WatchNodeResponse
-	(*OpenSessionRequest)(nil),    // 17: governor.v1.OpenSessionRequest
-	(*OpenSessionResponse)(nil),   // 18: governor.v1.OpenSessionResponse
-	(*HeartbeatRequest)(nil),      // 19: governor.v1.HeartbeatRequest
-	(*HeartbeatResponse)(nil),     // 20: governor.v1.HeartbeatResponse
-	(*CloseSessionRequest)(nil),   // 21: governor.v1.CloseSessionRequest
-	(*CloseSessionResponse)(nil),  // 22: governor.v1.CloseSessionResponse
-	(*AcquireRequest)(nil),        // 23: governor.v1.AcquireRequest
-	(*AcquireResponse)(nil),       // 24: governor.v1.AcquireResponse
-	(*ReleaseRequest)(nil),        // 25: governor.v1.ReleaseRequest
-	(*ReleaseResponse)(nil),       // 26: governor.v1.ReleaseResponse
-	(*ValidateRequest)(nil),       // 27: governor.v1.ValidateRequest
-	(*ValidateResponse)(nil),      // 28: governor.v1.ValidateResponse
-	nil,                           // 29: governor.v1.Spec.QuotasEntry
-	nil,                           // 30: governor.v1.Spec.LimitsEntry
-	(*timestamppb.Timestamp)(nil), // 31: google.protobuf.Timestamp
-	(*durationpb.Duration)(nil),   // 32: google.protobuf.Duration
+	(*Defaults)(nil),              // 3: governor.v1.Defaults
+	(*Node)(nil),                  // 4: governor.v1.Node
+	(*ErrorDetail)(nil),           // 5: governor.v1.ErrorDetail
+	(*Denial)(nil),                // 6: governor.v1.Denial
+	(*CreateNodeRequest)(nil),     // 7: governor.v1.CreateNodeRequest
+	(*CreateNodeResponse)(nil),    // 8: governor.v1.CreateNodeResponse
+	(*EnsureNodeRequest)(nil),     // 9: governor.v1.EnsureNodeRequest
+	(*EnsureNodeResponse)(nil),    // 10: governor.v1.EnsureNodeResponse
+	(*ConsumeRequest)(nil),        // 11: governor.v1.ConsumeRequest
+	(*ConsumeResponse)(nil),       // 12: governor.v1.ConsumeResponse
+	(*CancelNodeRequest)(nil),     // 13: governor.v1.CancelNodeRequest
+	(*CancelNodeResponse)(nil),    // 14: governor.v1.CancelNodeResponse
+	(*CloseNodeRequest)(nil),      // 15: governor.v1.CloseNodeRequest
+	(*CloseNodeResponse)(nil),     // 16: governor.v1.CloseNodeResponse
+	(*WatchNodeRequest)(nil),      // 17: governor.v1.WatchNodeRequest
+	(*WatchNodeResponse)(nil),     // 18: governor.v1.WatchNodeResponse
+	(*GetNodeRequest)(nil),        // 19: governor.v1.GetNodeRequest
+	(*GetNodeResponse)(nil),       // 20: governor.v1.GetNodeResponse
+	(*SetQuotaRequest)(nil),       // 21: governor.v1.SetQuotaRequest
+	(*SetQuotaResponse)(nil),      // 22: governor.v1.SetQuotaResponse
+	(*SetLimitRequest)(nil),       // 23: governor.v1.SetLimitRequest
+	(*SetLimitResponse)(nil),      // 24: governor.v1.SetLimitResponse
+	(*SetDefaultsRequest)(nil),    // 25: governor.v1.SetDefaultsRequest
+	(*SetDefaultsResponse)(nil),   // 26: governor.v1.SetDefaultsResponse
+	(*OpenSessionRequest)(nil),    // 27: governor.v1.OpenSessionRequest
+	(*OpenSessionResponse)(nil),   // 28: governor.v1.OpenSessionResponse
+	(*HeartbeatRequest)(nil),      // 29: governor.v1.HeartbeatRequest
+	(*HeartbeatResponse)(nil),     // 30: governor.v1.HeartbeatResponse
+	(*CloseSessionRequest)(nil),   // 31: governor.v1.CloseSessionRequest
+	(*CloseSessionResponse)(nil),  // 32: governor.v1.CloseSessionResponse
+	(*AcquireRequest)(nil),        // 33: governor.v1.AcquireRequest
+	(*AcquireResponse)(nil),       // 34: governor.v1.AcquireResponse
+	(*ReleaseRequest)(nil),        // 35: governor.v1.ReleaseRequest
+	(*ReleaseResponse)(nil),       // 36: governor.v1.ReleaseResponse
+	(*ValidateRequest)(nil),       // 37: governor.v1.ValidateRequest
+	(*ValidateResponse)(nil),      // 38: governor.v1.ValidateResponse
+	nil,                           // 39: governor.v1.Spec.QuotasEntry
+	nil,                           // 40: governor.v1.Spec.LimitsEntry
+	nil,                           // 41: governor.v1.Defaults.QuotasEntry
+	nil,                           // 42: governor.v1.Node.QuotasEntry
+	nil,                           // 43: governor.v1.Node.UsedEntry
+	nil,                           // 44: governor.v1.Node.LimitsEntry
+	nil,                           // 45: governor.v1.Node.HeldEntry
+	(*timestamppb.Timestamp)(nil), // 46: google.protobuf.Timestamp
+	(*durationpb.Duration)(nil),   // 47: google.protobuf.Duration
 }
 var file_governor_v1_governor_proto_depIdxs = []int32{
-	29, // 0: governor.v1.Spec.quotas:type_name -> governor.v1.Spec.QuotasEntry
-	30, // 1: governor.v1.Spec.limits:type_name -> governor.v1.Spec.LimitsEntry
-	31, // 2: governor.v1.Spec.deadline:type_name -> google.protobuf.Timestamp
-	1,  // 3: governor.v1.ErrorDetail.reason:type_name -> governor.v1.Reason
-	4,  // 4: governor.v1.ErrorDetail.denial:type_name -> governor.v1.Denial
-	2,  // 5: governor.v1.CreateNodeRequest.spec:type_name -> governor.v1.Spec
-	2,  // 6: governor.v1.EnsureNodeRequest.spec:type_name -> governor.v1.Spec
-	0,  // 7: governor.v1.WatchNodeResponse.state:type_name -> governor.v1.State
-	32, // 8: governor.v1.OpenSessionRequest.ttl:type_name -> google.protobuf.Duration
-	31, // 9: governor.v1.OpenSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
-	31, // 10: governor.v1.HeartbeatResponse.expires_at:type_name -> google.protobuf.Timestamp
-	32, // 11: governor.v1.AcquireRequest.max_hold:type_name -> google.protobuf.Duration
-	32, // 12: governor.v1.ReleaseRequest.latency:type_name -> google.protobuf.Duration
-	5,  // 13: governor.v1.GovernorService.CreateNode:input_type -> governor.v1.CreateNodeRequest
-	7,  // 14: governor.v1.GovernorService.EnsureNode:input_type -> governor.v1.EnsureNodeRequest
-	9,  // 15: governor.v1.GovernorService.Consume:input_type -> governor.v1.ConsumeRequest
-	11, // 16: governor.v1.GovernorService.CancelNode:input_type -> governor.v1.CancelNodeRequest
-	13, // 17: governor.v1.GovernorService.CloseNode:input_type -> governor.v1.CloseNodeRequest
-	15, // 18: governor.v1.GovernorService.WatchNode:input_type -> governor.v1.WatchNodeRequest
-	17, // 19: governor.v1.GovernorService.OpenSession:input_type -> governor.v1.OpenSessionRequest
-	19, // 20: governor.v1.GovernorService.Heartbeat:input_type -> governor.v1.HeartbeatRequest
-	21, // 21: governor.v1.GovernorService.CloseSession:input_type -> governor.v1.CloseSessionRequest
-	23, // 22: governor.v1.GovernorService.Acquire:input_type -> governor.v1.AcquireRequest
-	25, // 23: governor.v1.GovernorService.Release:input_type -> governor.v1.ReleaseRequest
-	27, // 24: governor.v1.GovernorService.Validate:input_type -> governor.v1.ValidateRequest
-	6,  // 25: governor.v1.GovernorService.CreateNode:output_type -> governor.v1.CreateNodeResponse
-	8,  // 26: governor.v1.GovernorService.EnsureNode:output_type -> governor.v1.EnsureNodeResponse
-	10, // 27: governor.v1.GovernorService.Consume:output_type -> governor.v1.ConsumeResponse
-	12, // 28: governor.v1.GovernorService.CancelNode:output_type -> governor.v1.CancelNodeResponse
-	14, // 29: governor.v1.GovernorService.CloseNode:output_type -> governor.v1.CloseNodeResponse
-	16, // 30: governor.v1.GovernorService.WatchNode:output_type -> governor.v1.WatchNodeResponse
-	18, // 31: governor.v1.GovernorService.OpenSession:output_type -> governor.v1.OpenSessionResponse
-	20, // 32: governor.v1.GovernorService.Heartbeat:output_type -> governor.v1.HeartbeatResponse
-	22, // 33: governor.v1.GovernorService.CloseSession:output_type -> governor.v1.CloseSessionResponse
-	24, // 34: governor.v1.GovernorService.Acquire:output_type -> governor.v1.AcquireResponse
-	26, // 35: governor.v1.GovernorService.Release:output_type -> governor.v1.ReleaseResponse
-	28, // 36: governor.v1.GovernorService.Validate:output_type -> governor.v1.ValidateResponse
-	25, // [25:37] is the sub-list for method output_type
-	13, // [13:25] is the sub-list for method input_type
-	13, // [13:13] is the sub-list for extension type_name
-	13, // [13:13] is the sub-list for extension extendee
-	0,  // [0:13] is the sub-list for field type_name
+	39, // 0: governor.v1.Spec.quotas:type_name -> governor.v1.Spec.QuotasEntry
+	40, // 1: governor.v1.Spec.limits:type_name -> governor.v1.Spec.LimitsEntry
+	46, // 2: governor.v1.Spec.deadline:type_name -> google.protobuf.Timestamp
+	41, // 3: governor.v1.Defaults.quotas:type_name -> governor.v1.Defaults.QuotasEntry
+	3,  // 4: governor.v1.Defaults.children:type_name -> governor.v1.Defaults
+	0,  // 5: governor.v1.Node.state:type_name -> governor.v1.State
+	46, // 6: governor.v1.Node.deadline:type_name -> google.protobuf.Timestamp
+	46, // 7: governor.v1.Node.ended_at:type_name -> google.protobuf.Timestamp
+	42, // 8: governor.v1.Node.quotas:type_name -> governor.v1.Node.QuotasEntry
+	43, // 9: governor.v1.Node.used:type_name -> governor.v1.Node.UsedEntry
+	44, // 10: governor.v1.Node.limits:type_name -> governor.v1.Node.LimitsEntry
+	45, // 11: governor.v1.Node.held:type_name -> governor.v1.Node.HeldEntry
+	3,  // 12: governor.v1.Node.defaults:type_name -> governor.v1.Defaults
+	1,  // 13: governor.v1.ErrorDetail.reason:type_name -> governor.v1.Reason
+	6,  // 14: governor.v1.ErrorDetail.denial:type_name -> governor.v1.Denial
+	2,  // 15: governor.v1.CreateNodeRequest.spec:type_name -> governor.v1.Spec
+	2,  // 16: governor.v1.EnsureNodeRequest.spec:type_name -> governor.v1.Spec
+	0,  // 17: governor.v1.WatchNodeResponse.state:type_name -> governor.v1.State
+	4,  // 18: governor.v1.GetNodeResponse.node:type_name -> governor.v1.Node
+	4,  // 19: governor.v1.GetNodeResponse.children:type_name -> governor.v1.Node
+	3,  // 20: governor.v1.SetDefaultsRequest.defaults:type_name -> governor.v1.Defaults
+	47, // 21: governor.v1.OpenSessionRequest.ttl:type_name -> google.protobuf.Duration
+	46, // 22: governor.v1.OpenSessionResponse.expires_at:type_name -> google.protobuf.Timestamp
+	46, // 23: governor.v1.HeartbeatResponse.expires_at:type_name -> google.protobuf.Timestamp
+	47, // 24: governor.v1.AcquireRequest.max_hold:type_name -> google.protobuf.Duration
+	47, // 25: governor.v1.ReleaseRequest.latency:type_name -> google.protobuf.Duration
+	7,  // 26: governor.v1.GovernorService.CreateNode:input_type -> governor.v1.CreateNodeRequest
+	9,  // 27: governor.v1.GovernorService.EnsureNode:input_type -> governor.v1.EnsureNodeRequest
+	11, // 28: governor.v1.GovernorService.Consume:input_type -> governor.v1.ConsumeRequest
+	13, // 29: governor.v1.GovernorService.CancelNode:input_type -> governor.v1.CancelNodeRequest
+	15, // 30: governor.v1.GovernorService.CloseNode:input_type -> governor.v1.CloseNodeRequest
+	17, // 31: governor.v1.GovernorService.WatchNode:input_type -> governor.v1.WatchNodeRequest
+	19, // 32: governor.v1.GovernorService.GetNode:input_type -> governor.v1.GetNodeRequest
+	21, // 33: governor.v1.GovernorService.SetQuota:input_type -> governor.v1.SetQuotaRequest
+	23, // 34: governor.v1.GovernorService.SetLimit:input_type -> governor.v1.SetLimitRequest
+	25, // 35: governor.v1.GovernorService.SetDefaults:input_type -> governor.v1.SetDefaultsRequest
+	27, // 36: governor.v1.GovernorService.OpenSession:input_type -> governor.v1.OpenSessionRequest
+	29, // 37: governor.v1.GovernorService.Heartbeat:input_type -> governor.v1.HeartbeatRequest
+	31, // 38: governor.v1.GovernorService.CloseSession:input_type -> governor.v1.CloseSessionRequest
+	33, // 39: governor.v1.GovernorService.Acquire:input_type -> governor.v1.AcquireRequest
+	35, // 40: governor.v1.GovernorService.Release:input_type -> governor.v1.ReleaseRequest
+	37, // 41: governor.v1.GovernorService.Validate:input_type -> governor.v1.ValidateRequest
+	8,  // 42: governor.v1.GovernorService.CreateNode:output_type -> governor.v1.CreateNodeResponse
+	10, // 43: governor.v1.GovernorService.EnsureNode:output_type -> governor.v1.EnsureNodeResponse
+	12, // 44: governor.v1.GovernorService.Consume:output_type -> governor.v1.ConsumeResponse
+	14, // 45: governor.v1.GovernorService.CancelNode:output_type -> governor.v1.CancelNodeResponse
+	16, // 46: governor.v1.GovernorService.CloseNode:output_type -> governor.v1.CloseNodeResponse
+	18, // 47: governor.v1.GovernorService.WatchNode:output_type -> governor.v1.WatchNodeResponse
+	20, // 48: governor.v1.GovernorService.GetNode:output_type -> governor.v1.GetNodeResponse
+	22, // 49: governor.v1.GovernorService.SetQuota:output_type -> governor.v1.SetQuotaResponse
+	24, // 50: governor.v1.GovernorService.SetLimit:output_type -> governor.v1.SetLimitResponse
+	26, // 51: governor.v1.GovernorService.SetDefaults:output_type -> governor.v1.SetDefaultsResponse
+	28, // 52: governor.v1.GovernorService.OpenSession:output_type -> governor.v1.OpenSessionResponse
+	30, // 53: governor.v1.GovernorService.Heartbeat:output_type -> governor.v1.HeartbeatResponse
+	32, // 54: governor.v1.GovernorService.CloseSession:output_type -> governor.v1.CloseSessionResponse
+	34, // 55: governor.v1.GovernorService.Acquire:output_type -> governor.v1.AcquireResponse
+	36, // 56: governor.v1.GovernorService.Release:output_type -> governor.v1.ReleaseResponse
+	38, // 57: governor.v1.GovernorService.Validate:output_type -> governor.v1.ValidateResponse
+	42, // [42:58] is the sub-list for method output_type
+	26, // [26:42] is the sub-list for method input_type
+	26, // [26:26] is the sub-list for extension type_name
+	26, // [26:26] is the sub-list for extension extendee
+	0,  // [0:26] is the sub-list for field type_name
 }
 
 func init() { file_governor_v1_governor_proto_init() }
@@ -1779,13 +2449,15 @@ func file_governor_v1_governor_proto_init() {
 	if File_governor_v1_governor_proto != nil {
 		return
 	}
+	file_governor_v1_governor_proto_msgTypes[19].OneofWrappers = []any{}
+	file_governor_v1_governor_proto_msgTypes[21].OneofWrappers = []any{}
 	type x struct{}
 	out := protoimpl.TypeBuilder{
 		File: protoimpl.DescBuilder{
 			GoPackagePath: reflect.TypeOf(x{}).PkgPath(),
 			RawDescriptor: unsafe.Slice(unsafe.StringData(file_governor_v1_governor_proto_rawDesc), len(file_governor_v1_governor_proto_rawDesc)),
 			NumEnums:      2,
-			NumMessages:   29,
+			NumMessages:   44,
 			NumExtensions: 0,
 			NumServices:   1,
 		},

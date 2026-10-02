@@ -72,6 +72,57 @@ func specFromProto(p *pb.Spec) (core.Spec, error) {
 	return spec, nil
 }
 
+// defaultsFromProto converts wire defaults; nil stays nil, which clears a node's defaults.
+func defaultsFromProto(p *pb.Defaults) *core.Defaults {
+	if p == nil {
+		return nil
+	}
+	d := &core.Defaults{Children: defaultsFromProto(p.GetChildren())}
+	if len(p.GetQuotas()) > 0 {
+		d.Quotas = make(map[core.Resource]int64, len(p.GetQuotas()))
+		for r, limit := range p.GetQuotas() {
+			d.Quotas[core.Resource(r)] = limit
+		}
+	}
+	return d
+}
+
+func defaultsToProto(d *core.Defaults) *pb.Defaults {
+	if d == nil {
+		return nil
+	}
+	return &pb.Defaults{Quotas: toWire(d.Quotas), Children: defaultsToProto(d.Children)}
+}
+
+// toWire converts a map of caps or counts to its wire form.
+func toWire[K ~string, V ~int | ~int64](m map[K]V) map[string]int64 {
+	if len(m) == 0 {
+		return nil
+	}
+	out := make(map[string]int64, len(m))
+	for k, v := range m {
+		out[string(k)] = int64(v)
+	}
+	return out
+}
+
+func nodeToProto(n core.NodeInfo) *pb.Node {
+	return &pb.Node{
+		Id:         uint64(n.ID),
+		ParentId:   uint64(n.Parent),
+		Name:       n.Name,
+		State:      stateToProto(n.State),
+		Deadline:   toTimestamp(n.Deadline),
+		EndedAt:    toTimestamp(n.EndedAt),
+		Quotas:     toWire(n.Quotas),
+		Used:       toWire(n.Used),
+		Limits:     toWire(n.Limits),
+		Held:       toWire(n.Held),
+		Defaults:   defaultsToProto(n.Defaults),
+		ChildCount: int64(n.Children),
+	}
+}
+
 func stateToProto(state core.State) pb.State {
 	switch state {
 	case core.StateActive:

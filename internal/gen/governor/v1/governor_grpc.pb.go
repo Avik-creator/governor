@@ -25,6 +25,10 @@ const (
 	GovernorService_CancelNode_FullMethodName   = "/governor.v1.GovernorService/CancelNode"
 	GovernorService_CloseNode_FullMethodName    = "/governor.v1.GovernorService/CloseNode"
 	GovernorService_WatchNode_FullMethodName    = "/governor.v1.GovernorService/WatchNode"
+	GovernorService_GetNode_FullMethodName      = "/governor.v1.GovernorService/GetNode"
+	GovernorService_SetQuota_FullMethodName     = "/governor.v1.GovernorService/SetQuota"
+	GovernorService_SetLimit_FullMethodName     = "/governor.v1.GovernorService/SetLimit"
+	GovernorService_SetDefaults_FullMethodName  = "/governor.v1.GovernorService/SetDefaults"
 	GovernorService_OpenSession_FullMethodName  = "/governor.v1.GovernorService/OpenSession"
 	GovernorService_Heartbeat_FullMethodName    = "/governor.v1.GovernorService/Heartbeat"
 	GovernorService_CloseSession_FullMethodName = "/governor.v1.GovernorService/CloseSession"
@@ -52,6 +56,14 @@ type GovernorServiceClient interface {
 	CloseNode(ctx context.Context, in *CloseNodeRequest, opts ...grpc.CallOption) (*CloseNodeResponse, error)
 	// WatchNode sends one message when the node ends, then closes the stream.
 	WatchNode(ctx context.Context, in *WatchNodeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchNodeResponse], error)
+	// GetNode describes a node and its children.
+	GetNode(ctx context.Context, in *GetNodeRequest, opts ...grpc.CallOption) (*GetNodeResponse, error)
+	// SetQuota changes or removes a node's cap for a resource.
+	SetQuota(ctx context.Context, in *SetQuotaRequest, opts ...grpc.CallOption) (*SetQuotaResponse, error)
+	// SetLimit changes or removes a node's cap for a class.
+	SetLimit(ctx context.Context, in *SetLimitRequest, opts ...grpc.CallOption) (*SetLimitResponse, error)
+	// SetDefaults changes what each new child of a node starts with.
+	SetDefaults(ctx context.Context, in *SetDefaultsRequest, opts ...grpc.CallOption) (*SetDefaultsResponse, error)
 	// OpenSession trades an API key for a session confined to the key's node.
 	OpenSession(ctx context.Context, in *OpenSessionRequest, opts ...grpc.CallOption) (*OpenSessionResponse, error)
 	// Heartbeat renews a session and every lease it holds.
@@ -143,6 +155,46 @@ func (c *governorServiceClient) WatchNode(ctx context.Context, in *WatchNodeRequ
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type GovernorService_WatchNodeClient = grpc.ServerStreamingClient[WatchNodeResponse]
 
+func (c *governorServiceClient) GetNode(ctx context.Context, in *GetNodeRequest, opts ...grpc.CallOption) (*GetNodeResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(GetNodeResponse)
+	err := c.cc.Invoke(ctx, GovernorService_GetNode_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *governorServiceClient) SetQuota(ctx context.Context, in *SetQuotaRequest, opts ...grpc.CallOption) (*SetQuotaResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetQuotaResponse)
+	err := c.cc.Invoke(ctx, GovernorService_SetQuota_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *governorServiceClient) SetLimit(ctx context.Context, in *SetLimitRequest, opts ...grpc.CallOption) (*SetLimitResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetLimitResponse)
+	err := c.cc.Invoke(ctx, GovernorService_SetLimit_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
+func (c *governorServiceClient) SetDefaults(ctx context.Context, in *SetDefaultsRequest, opts ...grpc.CallOption) (*SetDefaultsResponse, error) {
+	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
+	out := new(SetDefaultsResponse)
+	err := c.cc.Invoke(ctx, GovernorService_SetDefaults_FullMethodName, in, out, cOpts...)
+	if err != nil {
+		return nil, err
+	}
+	return out, nil
+}
+
 func (c *governorServiceClient) OpenSession(ctx context.Context, in *OpenSessionRequest, opts ...grpc.CallOption) (*OpenSessionResponse, error) {
 	cOpts := append([]grpc.CallOption{grpc.StaticMethod()}, opts...)
 	out := new(OpenSessionResponse)
@@ -222,6 +274,14 @@ type GovernorServiceServer interface {
 	CloseNode(context.Context, *CloseNodeRequest) (*CloseNodeResponse, error)
 	// WatchNode sends one message when the node ends, then closes the stream.
 	WatchNode(*WatchNodeRequest, grpc.ServerStreamingServer[WatchNodeResponse]) error
+	// GetNode describes a node and its children.
+	GetNode(context.Context, *GetNodeRequest) (*GetNodeResponse, error)
+	// SetQuota changes or removes a node's cap for a resource.
+	SetQuota(context.Context, *SetQuotaRequest) (*SetQuotaResponse, error)
+	// SetLimit changes or removes a node's cap for a class.
+	SetLimit(context.Context, *SetLimitRequest) (*SetLimitResponse, error)
+	// SetDefaults changes what each new child of a node starts with.
+	SetDefaults(context.Context, *SetDefaultsRequest) (*SetDefaultsResponse, error)
 	// OpenSession trades an API key for a session confined to the key's node.
 	OpenSession(context.Context, *OpenSessionRequest) (*OpenSessionResponse, error)
 	// Heartbeat renews a session and every lease it holds.
@@ -261,6 +321,18 @@ func (UnimplementedGovernorServiceServer) CloseNode(context.Context, *CloseNodeR
 }
 func (UnimplementedGovernorServiceServer) WatchNode(*WatchNodeRequest, grpc.ServerStreamingServer[WatchNodeResponse]) error {
 	return status.Error(codes.Unimplemented, "method WatchNode not implemented")
+}
+func (UnimplementedGovernorServiceServer) GetNode(context.Context, *GetNodeRequest) (*GetNodeResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method GetNode not implemented")
+}
+func (UnimplementedGovernorServiceServer) SetQuota(context.Context, *SetQuotaRequest) (*SetQuotaResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetQuota not implemented")
+}
+func (UnimplementedGovernorServiceServer) SetLimit(context.Context, *SetLimitRequest) (*SetLimitResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetLimit not implemented")
+}
+func (UnimplementedGovernorServiceServer) SetDefaults(context.Context, *SetDefaultsRequest) (*SetDefaultsResponse, error) {
+	return nil, status.Error(codes.Unimplemented, "method SetDefaults not implemented")
 }
 func (UnimplementedGovernorServiceServer) OpenSession(context.Context, *OpenSessionRequest) (*OpenSessionResponse, error) {
 	return nil, status.Error(codes.Unimplemented, "method OpenSession not implemented")
@@ -402,6 +474,78 @@ func _GovernorService_WatchNode_Handler(srv interface{}, stream grpc.ServerStrea
 // This type alias is provided for backwards compatibility with existing code that references the prior non-generic stream type by name.
 type GovernorService_WatchNodeServer = grpc.ServerStreamingServer[WatchNodeResponse]
 
+func _GovernorService_GetNode_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(GetNodeRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GovernorServiceServer).GetNode(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GovernorService_GetNode_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GovernorServiceServer).GetNode(ctx, req.(*GetNodeRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GovernorService_SetQuota_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetQuotaRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GovernorServiceServer).SetQuota(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GovernorService_SetQuota_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GovernorServiceServer).SetQuota(ctx, req.(*SetQuotaRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GovernorService_SetLimit_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetLimitRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GovernorServiceServer).SetLimit(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GovernorService_SetLimit_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GovernorServiceServer).SetLimit(ctx, req.(*SetLimitRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
+func _GovernorService_SetDefaults_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
+	in := new(SetDefaultsRequest)
+	if err := dec(in); err != nil {
+		return nil, err
+	}
+	if interceptor == nil {
+		return srv.(GovernorServiceServer).SetDefaults(ctx, in)
+	}
+	info := &grpc.UnaryServerInfo{
+		Server:     srv,
+		FullMethod: GovernorService_SetDefaults_FullMethodName,
+	}
+	handler := func(ctx context.Context, req interface{}) (interface{}, error) {
+		return srv.(GovernorServiceServer).SetDefaults(ctx, req.(*SetDefaultsRequest))
+	}
+	return interceptor(ctx, in, info, handler)
+}
+
 func _GovernorService_OpenSession_Handler(srv interface{}, ctx context.Context, dec func(interface{}) error, interceptor grpc.UnaryServerInterceptor) (interface{}, error) {
 	in := new(OpenSessionRequest)
 	if err := dec(in); err != nil {
@@ -536,6 +680,22 @@ var GovernorService_ServiceDesc = grpc.ServiceDesc{
 		{
 			MethodName: "CloseNode",
 			Handler:    _GovernorService_CloseNode_Handler,
+		},
+		{
+			MethodName: "GetNode",
+			Handler:    _GovernorService_GetNode_Handler,
+		},
+		{
+			MethodName: "SetQuota",
+			Handler:    _GovernorService_SetQuota_Handler,
+		},
+		{
+			MethodName: "SetLimit",
+			Handler:    _GovernorService_SetLimit_Handler,
+		},
+		{
+			MethodName: "SetDefaults",
+			Handler:    _GovernorService_SetDefaults_Handler,
 		},
 		{
 			MethodName: "OpenSession",

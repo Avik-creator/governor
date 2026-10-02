@@ -23,6 +23,15 @@ service GovernorService {
   // WatchNode sends one message when the node ends, then closes the stream.
   rpc WatchNode(WatchNodeRequest) returns (stream WatchNodeResponse);
 
+  // GetNode describes a node and its children.
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
+  // SetQuota changes or removes a node's cap for a resource.
+  rpc SetQuota(SetQuotaRequest) returns (SetQuotaResponse);
+  // SetLimit changes or removes a node's cap for a class.
+  rpc SetLimit(SetLimitRequest) returns (SetLimitResponse);
+  // SetDefaults changes what each new child of a node starts with.
+  rpc SetDefaults(SetDefaultsRequest) returns (SetDefaultsResponse);
+
   // OpenSession trades an API key for a session confined to the key's node.
   rpc OpenSession(OpenSessionRequest) returns (OpenSessionResponse);
   // Heartbeat renews a session and every lease it holds.
@@ -77,6 +86,36 @@ message Spec {
   int64 weight = 5;
   // priority orders queued acquires within a tenant; higher goes first.
   int64 priority = 6;
+}
+
+// Defaults is what a node gives each new child, whatever the child's own spec asks for.
+message Defaults {
+  // quotas replace the child's caps for the resources named here.
+  map<string, int64> quotas = 1;
+  // children become the child's own defaults, for the nodes created under it.
+  Defaults children = 2;
+}
+
+// Node describes one node of the tree.
+message Node {
+  uint64 id = 1;
+  // parent_id is zero for the root.
+  uint64 parent_id = 2;
+  string name = 3;
+  State state = 4;
+  // deadline is the effective deadline; unset means none.
+  google.protobuf.Timestamp deadline = 5;
+  // ended_at is unset while the node is active.
+  google.protobuf.Timestamp ended_at = 6;
+  // quotas and limits are the node's own caps; used and held count its whole subtree.
+  map<string, int64> quotas = 7;
+  map<string, int64> used = 8;
+  map<string, int64> limits = 9;
+  map<string, int64> held = 10;
+  // defaults is what each new child starts with; unset means nothing.
+  Defaults defaults = 11;
+  // child_count is how many children the node has.
+  int64 child_count = 12;
 }
 
 // ErrorDetail is attached to the status of every failed call.
@@ -158,6 +197,44 @@ message WatchNodeResponse {
   // state is the terminal state the node ended in.
   State state = 1;
 }
+
+message GetNodeRequest {
+  // node_id of zero means the node the caller is confined to.
+  uint64 node_id = 1;
+}
+
+message GetNodeResponse {
+  Node node = 1;
+  // children are ordered by id.
+  repeated Node children = 2;
+}
+
+message SetQuotaRequest {
+  uint64 node_id = 1;
+  string resource = 2;
+  // limit is the new cap; leaving it unset removes the cap.
+  optional int64 limit = 3;
+}
+
+message SetQuotaResponse {}
+
+message SetLimitRequest {
+  uint64 node_id = 1;
+  string class = 2;
+  // limit is the new cap; leaving it unset removes the cap.
+  optional int64 limit = 3;
+}
+
+message SetLimitResponse {}
+
+message SetDefaultsRequest {
+  // node_id of zero means the node the caller is confined to.
+  uint64 node_id = 1;
+  // defaults replaces the node's defaults; leaving it unset clears them.
+  Defaults defaults = 2;
+}
+
+message SetDefaultsResponse {}
 
 message OpenSessionRequest {
   // ttl is how long the session lives without a heartbeat; zero means forever.

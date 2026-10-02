@@ -375,6 +375,22 @@ func calls(c pb.GovernorServiceClient, node uint64) map[string]func(context.Cont
 			_, err := c.CloseNode(ctx, &pb.CloseNodeRequest{NodeId: node})
 			return err
 		},
+		"GetNode": func(ctx context.Context) error {
+			_, err := c.GetNode(ctx, &pb.GetNodeRequest{NodeId: node})
+			return err
+		},
+		"SetQuota": func(ctx context.Context) error {
+			_, err := c.SetQuota(ctx, &pb.SetQuotaRequest{NodeId: node, Resource: "http", Limit: proto.Int64(1 << 40)})
+			return err
+		},
+		"SetLimit": func(ctx context.Context) error {
+			_, err := c.SetLimit(ctx, &pb.SetLimitRequest{NodeId: node, Class: "db", Limit: proto.Int64(1 << 20)})
+			return err
+		},
+		"SetDefaults": func(ctx context.Context) error {
+			_, err := c.SetDefaults(ctx, &pb.SetDefaultsRequest{NodeId: node, Defaults: &pb.Defaults{}})
+			return err
+		},
 		"WatchNode": func(ctx context.Context) error {
 			stream, err := c.WatchNode(ctx, &pb.WatchNodeRequest{NodeId: node})
 			if err != nil {
@@ -531,6 +547,116 @@ func TestTenantIsolation(t *testing.T) {
 	}
 	_, err = h.client.Release(h.as(tokenA), &pb.ReleaseRequest{LeaseId: lease.GetLeaseId()})
 	wantStatus(t, err, codes.PermissionDenied, pb.Reason_REASON_NOT_OWNER)
+}
+
+func TestEditNodes(t *testing.T) {
+	h := newHarness(t, core.Spec{}, core.Spec{Name: "tenant", Quotas: map[core.Resource]int64{"tool_calls": 100}})
+	token := h.open(keyA, 0)
+	ctx := h.as(token)
+
+	// Defaults set on the tenant shape the runs a hook creates with nothing but the key.
+	defaults := &pb.Defaults{
+		Quotas:   map[string]int64{"tool_calls": 2},
+		Children: &pb.Defaults{Quotas: map[string]int64{"tool_calls": 1}},
+	}
+	if _, err := h.client.SetDefaults(ctx, &pb.SetDefaultsRequest{Defaults: defaults}); err != nil {
+		t.Fatalf("SetDefaults: %v", err)
+	}
+	run, err := h.client.EnsureNode(h.as(keyA), &pb.EnsureNodeRequest{
+		Spec: &pb.Spec{Name: "run", Quotas: map[string]int64{"tool_calls": 500}},
+	})
+	if err != nil {
+		t.Fatalf("EnsureNode: %v", err)
+	}
+	charge := &pb.ConsumeRequest{NodeId: run.GetNodeId(), Resource: "tool_calls", Amount: 2}
+	if _, err := h.client.Consume(h.as(keyA), charge); err != nil {
+		t.Fatalf("Consume: %v", err)
+	}
+	charge.Amount = 1
+	_, err = h.client.Consume(h.as(keyA), charge)
+	wantStatus(t, err, codes.ResourceExhausted, pb.Reason_REASON_DENIED)
+
+	// Node zero is the caller's own tenant.
+	got, err := h.client.GetNode(ctx, &pb.GetNodeRequest{})
+	if err != nil {
+		t.Fatalf("GetNode: %v", err)
+	}
+	if n := got.GetNode(); n.GetId() != uint64(h.a) || n.GetName() != "tenant" || n.GetParentId() != uint64(core.RootID) ||
+		n.GetQuotas()["tool_calls"] != 100 || n.GetUsed()["tool_calls"] != 2 || n.GetChildCount() != 1 ||
+		!proto.Equal(n.GetDefaults(), defaults) {
+		t.Errorf("GetNode = %v", n)
+	}
+	if len(got.GetChildren()) != 1 {
+		t.Fatalf("GetNode returned %d children, want 1", len(got.GetChildren()))
+	}
+	if c := got.GetChildren()[0]; c.GetId() != run.GetNodeId() || c.GetName() != "run" || c.GetState() != pb.State_STATE_ACTIVE ||
+		c.GetQuotas()["tool_calls"] != 2 || c.GetUsed()["tool_calls"] != 2 || !proto.Equal(c.GetDefaults(), defaults.GetChildren()) {
+		t.Errorf("child = %v", c)
+	}
+
+	// Raising the cap lets the run carry on, and the change survives a restart.
+	raise := &pb.SetQuotaRequest{NodeId: run.GetNodeId(), Resource: "tool_calls", Limit: proto.Int64(3)}
+	if _, err := h.client.SetQuota(ctx, raise); err != nil {
+		t.Fatalf("SetQuota: %v", err)
+	}
+	h.restart()
+	ctx = h.as(token)
+	if _, err := h.client.Consume(h.as(keyA), charge); err != nil {
+		t.Fatalf("Consume after the cap was raised: %v", err)
+	}
+	_, err = h.client.Consume(h.as(keyA), charge)
+	wantStatus(t, err, codes.ResourceExhausted, pb.Reason_REASON_DENIED)
+	again, err := h.client.GetNode(ctx, &pb.GetNodeRequest{})
+	if err != nil || !proto.Equal(again.GetNode().GetDefaults(), defaults) {
+		t.Errorf("defaults after a restart = %v, %v, want %v", again.GetNode().GetDefaults(), err, defaults)
+	}
+
+	// An unset limit removes the cap, so only the tenant's own cap is left.
+	if _, err := h.client.SetQuota(ctx, &pb.SetQuotaRequest{NodeId: run.GetNodeId(), Resource: "tool_calls"}); err != nil {
+		t.Fatalf("SetQuota without a limit: %v", err)
+	}
+	charge.Amount = 97
+	if _, err := h.client.Consume(h.as(keyA), charge); err != nil {
+		t.Fatalf("Consume with the cap removed: %v", err)
+	}
+	charge.Amount = 1
+	_, err = h.client.Consume(h.as(keyA), charge)
+	if d := wantStatus(t, err, codes.ResourceExhausted, pb.Reason_REASON_DENIED); d.GetDenial().GetNodeId() != uint64(h.a) {
+		t.Errorf("denied at node %d, want the tenant %d", d.GetDenial().GetNodeId(), h.a)
+	}
+
+	// A tenant cannot loosen its own caps, and a negative cap is not a way to remove one.
+	_, err = h.client.SetQuota(ctx, &pb.SetQuotaRequest{NodeId: uint64(h.a), Resource: "tool_calls", Limit: proto.Int64(1000)})
+	wantStatus(t, err, codes.PermissionDenied, pb.Reason_REASON_FORBIDDEN)
+	_, err = h.client.SetLimit(ctx, &pb.SetLimitRequest{NodeId: uint64(h.a), Class: "db", Limit: proto.Int64(1000)})
+	wantStatus(t, err, codes.PermissionDenied, pb.Reason_REASON_FORBIDDEN)
+	_, err = h.client.SetQuota(ctx, &pb.SetQuotaRequest{NodeId: run.GetNodeId(), Resource: "tool_calls", Limit: proto.Int64(-1)})
+	wantStatus(t, err, codes.InvalidArgument, pb.Reason_REASON_INVALID)
+	_, err = h.client.SetLimit(ctx, &pb.SetLimitRequest{NodeId: run.GetNodeId(), Class: "db", Limit: proto.Int64(-1)})
+	wantStatus(t, err, codes.InvalidArgument, pb.Reason_REASON_INVALID)
+	bad := &pb.Defaults{Quotas: map[string]int64{"tool_calls": -1}}
+	_, err = h.client.SetDefaults(ctx, &pb.SetDefaultsRequest{Defaults: bad})
+	wantStatus(t, err, codes.InvalidArgument, pb.Reason_REASON_INVALID)
+
+	// A limit set over the API bounds leases like one given at creation.
+	if _, err := h.client.SetLimit(ctx, &pb.SetLimitRequest{NodeId: run.GetNodeId(), Class: "db", Limit: proto.Int64(1)}); err != nil {
+		t.Fatalf("SetLimit: %v", err)
+	}
+	if _, err := h.client.Acquire(ctx, &pb.AcquireRequest{NodeId: run.GetNodeId(), Class: "db"}); err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if n, err := h.client.GetNode(ctx, &pb.GetNodeRequest{NodeId: run.GetNodeId()}); err != nil ||
+		n.GetNode().GetLimits()["db"] != 1 || n.GetNode().GetHeld()["db"] != 1 {
+		t.Errorf("GetNode(run) = %v, %v, want one db lease held of one", n, err)
+	}
+
+	// Clearing the defaults gives the next run only what its spec asks for.
+	if _, err := h.client.SetDefaults(ctx, &pb.SetDefaultsRequest{}); err != nil {
+		t.Fatalf("SetDefaults without defaults: %v", err)
+	}
+	if n, err := h.client.GetNode(ctx, &pb.GetNodeRequest{}); err != nil || n.GetNode().GetDefaults() != nil {
+		t.Errorf("defaults after clearing = %v, %v, want none", n.GetNode().GetDefaults(), err)
+	}
 }
 
 func TestConsumeDenialDetail(t *testing.T) {

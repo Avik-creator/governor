@@ -102,6 +102,15 @@ func (s *Server) durable(ctx context.Context, seq uint64) error {
 	}
 }
 
+// nodeOrScope returns the node an id names; zero names the node the session is confined to.
+func (s *Server) nodeOrScope(sid core.SessionID, id uint64) (core.NodeID, error) {
+	// A caller that only holds an API key does not know its tenant's node, so zero stands for it.
+	if id == 0 {
+		return s.engine.Scope(sid)
+	}
+	return core.NodeID(id), nil
+}
+
 // CreateNode adds a child node under a parent.
 func (s *Server) CreateNode(ctx context.Context, req *pb.CreateNodeRequest) (*pb.CreateNodeResponse, error) {
 	spec, err := specFromProto(req.GetSpec())
@@ -129,12 +138,10 @@ func (s *Server) EnsureNode(ctx context.Context, req *pb.EnsureNodeRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	sid, parent, resource := sessionFrom(ctx), core.NodeID(req.GetParentId()), core.Resource(req.GetChargeResource())
-	// A caller that only holds an API key does not know its tenant's node, so zero stands for it.
-	if parent == 0 {
-		if parent, err = s.engine.Scope(sid); err != nil {
-			return nil, err
-		}
+	sid, resource := sessionFrom(ctx), core.Resource(req.GetChargeResource())
+	parent, err := s.nodeOrScope(sid, req.GetParentId())
+	if err != nil {
+		return nil, err
 	}
 	id, created, seq, err := s.engine.EnsureNode(sid, parent, spec, resource, req.GetChargeAmount())
 	if err != nil {
@@ -207,6 +214,83 @@ func (s *Server) WatchNode(req *pb.WatchNodeRequest, stream pb.GovernorService_W
 		return err
 	}
 	return stream.Send(&pb.WatchNodeResponse{State: stateToProto(state)})
+}
+
+// GetNode describes a node and its children.
+func (s *Server) GetNode(ctx context.Context, req *pb.GetNodeRequest) (*pb.GetNodeResponse, error) {
+	sid := sessionFrom(ctx)
+	id, err := s.nodeOrScope(sid, req.GetNodeId())
+	if err != nil {
+		return nil, err
+	}
+	node, children, err := s.engine.Describe(sid, id)
+	if err != nil {
+		return nil, err
+	}
+	resp := &pb.GetNodeResponse{Node: nodeToProto(node), Children: make([]*pb.Node, len(children))}
+	for i, c := range children {
+		resp.Children[i] = nodeToProto(c)
+	}
+	return resp, nil
+}
+
+// SetQuota changes or removes a node's cap for a resource.
+func (s *Server) SetQuota(ctx context.Context, req *pb.SetQuotaRequest) (*pb.SetQuotaResponse, error) {
+	limit := int64(core.Unlimited)
+	if req.Limit != nil {
+		// A negative cap would otherwise be taken as a request to remove it.
+		if limit = req.GetLimit(); limit < 0 {
+			return nil, fmt.Errorf("%w: limit is negative", core.ErrInvalid)
+		}
+	}
+	seq, err := s.engine.SetQuota(sessionFrom(ctx), core.NodeID(req.GetNodeId()), core.Resource(req.GetResource()), limit)
+	if err != nil {
+		return nil, err
+	}
+	// The cap is changed now, so the wait must not end with the caller's context.
+	if err := s.durable(context.WithoutCancel(ctx), seq); err != nil {
+		return nil, err
+	}
+	return &pb.SetQuotaResponse{}, nil
+}
+
+// SetLimit changes or removes a node's cap for a class.
+func (s *Server) SetLimit(ctx context.Context, req *pb.SetLimitRequest) (*pb.SetLimitResponse, error) {
+	limit := core.Unlimited
+	if req.Limit != nil {
+		var err error
+		if limit, err = toInt("limit", req.GetLimit()); err != nil {
+			return nil, err
+		}
+		if limit < 0 {
+			return nil, fmt.Errorf("%w: limit is negative", core.ErrInvalid)
+		}
+	}
+	seq, err := s.engine.SetLimitAs(sessionFrom(ctx), core.NodeID(req.GetNodeId()), core.Class(req.GetClass()), limit)
+	if err != nil {
+		return nil, err
+	}
+	if err := s.durable(context.WithoutCancel(ctx), seq); err != nil {
+		return nil, err
+	}
+	return &pb.SetLimitResponse{}, nil
+}
+
+// SetDefaults changes what each new child of a node starts with.
+func (s *Server) SetDefaults(ctx context.Context, req *pb.SetDefaultsRequest) (*pb.SetDefaultsResponse, error) {
+	sid := sessionFrom(ctx)
+	id, err := s.nodeOrScope(sid, req.GetNodeId())
+	if err != nil {
+		return nil, err
+	}
+	seq, err := s.engine.SetDefaults(sid, id, defaultsFromProto(req.GetDefaults()))
+	if err != nil {
+		return nil, err
+	}
+	if err := s.durable(context.WithoutCancel(ctx), seq); err != nil {
+		return nil, err
+	}
+	return &pb.SetDefaultsResponse{}, nil
 }
 
 // OpenSession trades the bearer API key for a session confined to the key's node.
