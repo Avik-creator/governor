@@ -2,7 +2,9 @@ package store
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
+	"maps"
 	"os"
 	"sync"
 	"testing"
@@ -14,7 +16,7 @@ import (
 // dsnEnv names the variable holding a Postgres these tests may wipe.
 const dsnEnv = "GOVERNOR_TEST_DSN"
 
-// openStore opens the test database; fresh also empties its events.
+// openStore opens the test database; fresh also empties its tables.
 func openStore(t *testing.T, fresh bool) *Store {
 	t.Helper()
 	dsn := os.Getenv(dsnEnv)
@@ -27,7 +29,7 @@ func openStore(t *testing.T, fresh bool) *Store {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	if fresh {
-		if _, err := s.db.Truncate(eventsTable).Executor().ExecContext(t.Context()); err != nil {
+		if _, err := s.db.Truncate(eventsTable, tokensTable).Executor().ExecContext(t.Context()); err != nil {
 			t.Fatalf("truncate: %v", err)
 		}
 		s.mu.Lock()
@@ -196,5 +198,43 @@ func TestWaitDurable(t *testing.T) {
 	}
 	if err := s.Close(); err != nil {
 		t.Errorf("second Close: %v", err)
+	}
+}
+
+func TestTokens(t *testing.T) {
+	s := openStore(t, true)
+	ctx := t.Context()
+	first, second := sha256.Sum256([]byte("first")), sha256.Sum256([]byte("second"))
+	if err := s.SaveToken(ctx, first, 7); err != nil {
+		t.Fatalf("SaveToken: %v", err)
+	}
+	if err := s.SaveToken(ctx, second, 9); err != nil {
+		t.Fatalf("SaveToken: %v", err)
+	}
+	if err := s.SaveToken(ctx, first, 8); err == nil {
+		t.Error("SaveToken accepted a hash that is already stored")
+	}
+
+	// Tokens are read by a later process, so reopen before loading them.
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	s = openStore(t, false)
+	got, err := s.LoadTokens(ctx)
+	if err != nil {
+		t.Fatalf("LoadTokens: %v", err)
+	}
+	want := map[[sha256.Size]byte]core.SessionID{first: 7, second: 9}
+	if !maps.Equal(got, want) {
+		t.Errorf("LoadTokens = %v, want %v", got, want)
+	}
+
+	for range 2 {
+		if err := s.DeleteToken(ctx, first); err != nil {
+			t.Fatalf("DeleteToken: %v", err)
+		}
+	}
+	if got, _ := s.LoadTokens(ctx); len(got) != 1 || got[second] != 9 {
+		t.Errorf("LoadTokens after a delete = %v, want only the second token", got)
 	}
 }
