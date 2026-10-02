@@ -8,9 +8,18 @@ import (
 
 type session struct {
 	id      SessionID
+	scope   *node         // the session may only act in this node's subtree
 	ttl     time.Duration // zero never expires
 	expires time.Time
 	leases  map[LeaseID]*lease
+}
+
+// covers reports whether n is the session's scope or lies beneath it.
+func (s *session) covers(n *node) bool {
+	for n.depth > s.scope.depth {
+		n = n.parent
+	}
+	return n == s.scope
 }
 
 // expired reports whether the session's TTL has lapsed at now.
@@ -37,15 +46,20 @@ type tomb struct {
 	at  time.Time
 }
 
-// OpenSession registers a lease holder; a ttl of zero never expires.
-func (e *Engine) OpenSession(ttl time.Duration) (SessionID, uint64, error) {
+// OpenSession opens a session confined to scope's subtree; ttl 0 never expires.
+func (e *Engine) OpenSession(scope NodeID, ttl time.Duration) (SessionID, uint64, error) {
 	if ttl < 0 {
 		return 0, 0, fmt.Errorf("%w: ttl is negative", ErrInvalid)
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
+	n, err := e.activeNode(scope)
+	if err != nil {
+		return 0, 0, err
+	}
 	s := &session{
 		id:     SessionID(e.nextID()),
+		scope:  n,
 		ttl:    ttl,
 		leases: make(map[LeaseID]*lease),
 	}
@@ -53,7 +67,7 @@ func (e *Engine) OpenSession(ttl time.Duration) (SessionID, uint64, error) {
 		s.expires = e.clock.Now().Add(ttl)
 	}
 	e.sessions[s.id] = s
-	e.emit(Event{Kind: EventSessionOpened, Session: s.id, Expires: s.expires})
+	e.emit(Event{Kind: EventSessionOpened, Node: n.id, Session: s.id, Expires: s.expires})
 	return s.id, e.seq, nil
 }
 
@@ -167,12 +181,7 @@ func (e *Engine) Acquire(ctx context.Context, sid SessionID, id NodeID, class Cl
 		return 0, 0, err
 	}
 	e.mu.Lock()
-	s, err := e.liveSession(sid)
-	if err != nil {
-		e.mu.Unlock()
-		return 0, 0, err
-	}
-	n, err := e.activeNode(id)
+	s, n, err := e.activeTarget(sid, id)
 	if err != nil {
 		e.mu.Unlock()
 		return 0, 0, err

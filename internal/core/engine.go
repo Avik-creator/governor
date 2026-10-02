@@ -209,14 +209,44 @@ func (e *Engine) activeNode(id NodeID) (*node, error) {
 	if n == nil {
 		return nil, fmt.Errorf("%w: %d", ErrUnknownNode, id)
 	}
+	return n, e.admit(n)
+}
+
+// admit applies n's deadline and reports whether n can still take work.
+func (e *Engine) admit(n *node) error {
 	if n.state == StateActive && n.deadlinePassed(e.clock.Now()) {
 		e.expireDeadline(n)
 		e.dispatch()
 	}
 	if n.state != StateActive {
-		return nil, closedErr(n)
+		return closedErr(n)
 	}
-	return n, nil
+	return nil
+}
+
+// target resolves id to a node inside the scope of the live session sid.
+func (e *Engine) target(sid SessionID, id NodeID) (*session, *node, error) {
+	s, err := e.liveSession(sid)
+	if err != nil {
+		return nil, nil, err
+	}
+	n := e.nodes[id]
+	if n == nil {
+		return nil, nil, fmt.Errorf("%w: %d", ErrUnknownNode, id)
+	}
+	if !s.covers(n) {
+		return nil, nil, fmt.Errorf("%w: node %d", ErrForbidden, id)
+	}
+	return s, n, nil
+}
+
+// activeTarget is target for operations that need the node to admit work.
+func (e *Engine) activeTarget(sid SessionID, id NodeID) (*session, *node, error) {
+	s, n, err := e.target(sid, id)
+	if err != nil {
+		return nil, nil, err
+	}
+	return s, n, e.admit(n)
 }
 
 // expireDeadline ends the topmost node on n's chain whose deadline has passed.
@@ -230,14 +260,14 @@ func (e *Engine) expireDeadline(n *node) {
 }
 
 // CreateNode adds a child under parent and returns its id and event sequence.
-func (e *Engine) CreateNode(parent NodeID, spec Spec) (NodeID, uint64, error) {
+func (e *Engine) CreateNode(sid SessionID, parent NodeID, spec Spec) (NodeID, uint64, error) {
 	if err := spec.validate(); err != nil {
 		return 0, 0, err
 	}
 	spec = spec.clone()
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	p, err := e.activeNode(parent)
+	_, p, err := e.activeTarget(sid, parent)
 	if err != nil {
 		return 0, 0, err
 	}
@@ -256,12 +286,7 @@ func (e *Engine) Consume(sid SessionID, id NodeID, r Resource, amount int64) (ui
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	if sid != 0 {
-		if _, err := e.liveSession(sid); err != nil {
-			return 0, err
-		}
-	}
-	n, err := e.activeNode(id)
+	_, n, err := e.activeTarget(sid, id)
 	if err != nil {
 		return 0, err
 	}
@@ -298,21 +323,21 @@ func (n *node) denied(r Resource, amount, limit int64) error {
 }
 
 // Cancel ends a node and its subtree as cancelled; repeating it is a no-op.
-func (e *Engine) Cancel(id NodeID) (uint64, error) {
-	return e.end(id, StateCancelled)
+func (e *Engine) Cancel(sid SessionID, id NodeID) (uint64, error) {
+	return e.end(sid, id, StateCancelled)
 }
 
 // Close ends a node as done and cancels its descendants that are still active.
-func (e *Engine) Close(id NodeID) (uint64, error) {
-	return e.end(id, StateDone)
+func (e *Engine) Close(sid SessionID, id NodeID) (uint64, error) {
+	return e.end(sid, id, StateDone)
 }
 
-func (e *Engine) end(id NodeID, state State) (uint64, error) {
+func (e *Engine) end(sid SessionID, id NodeID, state State) (uint64, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	n := e.nodes[id]
-	if n == nil {
-		return 0, fmt.Errorf("%w: %d", ErrUnknownNode, id)
+	_, n, err := e.target(sid, id)
+	if err != nil {
+		return 0, err
 	}
 	if n == e.root {
 		return 0, fmt.Errorf("%w: the root cannot be ended", ErrInvalid)
@@ -354,15 +379,13 @@ func (e *Engine) markEnded(n *node, state State) {
 	}
 }
 
-// Done returns a channel that is closed once the node has ended or is unknown.
-func (e *Engine) Done(id NodeID) <-chan struct{} {
+// Done returns a channel that is closed once the node has ended.
+func (e *Engine) Done(sid SessionID, id NodeID) (<-chan struct{}, error) {
 	e.mu.Lock()
 	defer e.mu.Unlock()
-	n := e.nodes[id]
-	if n == nil {
-		ch := make(chan struct{})
-		close(ch)
-		return ch
+	_, n, err := e.target(sid, id)
+	if err != nil {
+		return nil, err
 	}
 	if n.done == nil {
 		n.done = make(chan struct{})
@@ -370,7 +393,7 @@ func (e *Engine) Done(id NodeID) <-chan struct{} {
 			close(n.done)
 		}
 	}
-	return n.done
+	return n.done, nil
 }
 
 // State returns the node's current state, applying its deadline first.

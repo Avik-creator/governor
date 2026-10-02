@@ -34,7 +34,7 @@ type Event struct {
 	Kind EventKind
 	Time time.Time
 
-	// Node is the node the event concerns, and Parent its parent on creation.
+	// Node is the node concerned or a session's scope; Parent is set on creation.
 	Node   NodeID
 	Parent NodeID
 

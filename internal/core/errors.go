@@ -28,6 +28,9 @@ var (
 	// ErrNotOwner reports a lease that belongs to another session.
 	ErrNotOwner = errors.New("governor: lease held by another session")
 
+	// ErrForbidden reports a node outside the scope of the calling session.
+	ErrForbidden = errors.New("governor: node is outside the session's scope")
+
 	// ErrDenied reports a consume that would exceed a quota; see DeniedError.
 	ErrDenied = errors.New("governor: quota exceeded")
 
