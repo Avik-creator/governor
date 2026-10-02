@@ -25,35 +25,56 @@ func NewGroup(ctx context.Context, class string) (*Group, context.Context) {
 	return g, g.ctx
 }
 
-// Go runs fn in a goroutine as a subtask described by spec.
+// Go runs fn as a subtask; fn must not wait for more leases of the group's class while it holds one.
 func (g *Group) Go(spec Spec, fn func(context.Context) error) {
 	g.wg.Go(func() {
 		if err := g.run(spec, fn); err != nil {
-			// The first failure stops the rest, as in errgroup.
-			g.once.Do(func() {
-				g.err = err
-				g.cancel(err)
-			})
+			g.fail(err)
 		}
 	})
 }
 
-// run creates the subtask, waits for its lease, runs fn and ends the subtask.
+// fail records the first error and stops the rest of the group, as errgroup does.
+func (g *Group) fail(err error) {
+	g.once.Do(func() {
+		g.err = err
+		g.cancel(err)
+	})
+}
+
+// run creates the subtask, runs fn under the group's lease and ends the subtask.
 func (g *Group) run(spec Spec, fn func(context.Context) error) error {
 	ctx, task, err := Child(g.ctx, spec)
 	if err != nil {
 		return err
 	}
-	if g.class == "" {
-		err = fn(ctx)
-	} else {
-		err = Do(ctx, g.class, fn)
-	}
-	if err != nil {
+	if err := g.hold(ctx, fn); err != nil {
 		_ = task.Cancel()
 		return err
 	}
 	return task.Close()
+}
+
+// hold runs fn while holding a lease of the group's class, if it has one.
+func (g *Group) hold(ctx context.Context, fn func(context.Context) error) error {
+	if g.class == "" {
+		return fn(ctx)
+	}
+	lease, err := Acquire(ctx, g.class)
+	if err != nil {
+		return err
+	}
+	defer lease.Release(Report{})
+	// A function whose turn comes after the group has failed does not start.
+	if ctx.Err() != nil {
+		return context.Cause(ctx)
+	}
+	err = fn(ctx)
+	if err != nil {
+		// The group is failed before the lease goes back, so the next waiter sees it.
+		g.fail(err)
+	}
+	return err
 }
 
 // Wait blocks until every function has returned, and returns the first error.

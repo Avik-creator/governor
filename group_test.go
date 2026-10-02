@@ -84,9 +84,9 @@ func TestGroupStopsOnFirstError(t *testing.T) {
 	if !errors.Is(context.Cause(groupCtx), boom) {
 		t.Errorf("group context cause = %v, want the first error", context.Cause(groupCtx))
 	}
-	// Functions still waiting for a lease never ran.
-	if got := started.Load(); got > 3 {
-		t.Errorf("%d functions started, want at most the two slots plus the failed one", got)
+	// Only the two that held a slot when the failure happened ever ran.
+	if got := started.Load(); got > 2 {
+		t.Errorf("%d functions started, want at most the two that held a slot", got)
 	}
 	if ctx.Err() != nil {
 		t.Errorf("the task's context ended with the group: %v", context.Cause(ctx))
