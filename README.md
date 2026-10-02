@@ -14,10 +14,10 @@ answers them the same way for a task, its subtasks and the tenant that owns them
 - **May this task run one more thing at once?** (leases: database connections, concurrent agents)
 - **Is this task still allowed to run?** (deadlines and cancellation)
 
-![governor ui listing the Claude Code and Codex sessions of one tenant with their budgets](docs/ui.png)
+![Governor in 15 seconds: one task fans out and overloads a service, then the same workload with budgets, leases and deadlines](docs/governor.gif)
 
-*`governor ui` showing the Claude Code and Codex sessions of one tenant: one has
-spent its tool-call budget and is refused further tools, one is close to it.*
+*Governor in 15 seconds. The numbers at the end are from the [benchmark](#benchmark).
+The same clip in full quality: [docs/governor.mp4](docs/governor.mp4).*
 
 The exact semantics are in [SPEC.md](SPEC.md), which is the contract the tests check.
 
