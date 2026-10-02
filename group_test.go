@@ -61,10 +61,15 @@ func TestGroupStopsOnFirstError(t *testing.T) {
 
 	var started atomic.Int32
 	g, groupCtx := NewGroup(ctx, ClassAgents)
+	// The failing function must hold a slot before the others compete for them.
+	holding, fail := make(chan struct{}), make(chan struct{})
 	g.Go(Spec{}, func(context.Context) error {
 		started.Add(1)
+		close(holding)
+		<-fail
 		return boom
 	})
+	<-holding
 	for range 10 {
 		g.Go(Spec{}, func(ctx context.Context) error {
 			started.Add(1)
@@ -72,6 +77,7 @@ func TestGroupStopsOnFirstError(t *testing.T) {
 			return context.Cause(ctx)
 		})
 	}
+	close(fail)
 	if err := g.Wait(); !errors.Is(err, boom) {
 		t.Errorf("Wait = %v, want the first error", err)
 	}
