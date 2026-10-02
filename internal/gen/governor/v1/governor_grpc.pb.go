@@ -37,6 +37,7 @@ const (
 // For semantics around ctx use and closing/ending streaming RPCs, please refer to https://pkg.go.dev/google.golang.org/grpc/?tab=doc#ClientConn.NewStream.
 //
 // GovernorService is the API of governord; SPEC.md defines its semantics.
+// Calls carry "authorization: Bearer <secret>" metadata: an API key or a session token.
 type GovernorServiceClient interface {
 	// CreateNode adds a child node under a parent.
 	CreateNode(ctx context.Context, in *CreateNodeRequest, opts ...grpc.CallOption) (*CreateNodeResponse, error)
@@ -194,6 +195,7 @@ func (c *governorServiceClient) Validate(ctx context.Context, in *ValidateReques
 // for forward compatibility.
 //
 // GovernorService is the API of governord; SPEC.md defines its semantics.
+// Calls carry "authorization: Bearer <secret>" metadata: an API key or a session token.
 type GovernorServiceServer interface {
 	// CreateNode adds a child node under a parent.
 	CreateNode(context.Context, *CreateNodeRequest) (*CreateNodeResponse, error)

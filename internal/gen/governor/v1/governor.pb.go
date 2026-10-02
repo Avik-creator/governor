@@ -416,9 +416,8 @@ type CreateNodeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// request_id makes a retry return the node created the first time.
 	RequestId     string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	SessionToken  string `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
-	ParentId      uint64 `protobuf:"varint,3,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
-	Spec          *Spec  `protobuf:"bytes,4,opt,name=spec,proto3" json:"spec,omitempty"`
+	ParentId      uint64 `protobuf:"varint,2,opt,name=parent_id,json=parentId,proto3" json:"parent_id,omitempty"`
+	Spec          *Spec  `protobuf:"bytes,3,opt,name=spec,proto3" json:"spec,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -456,13 +455,6 @@ func (*CreateNodeRequest) Descriptor() ([]byte, []int) {
 func (x *CreateNodeRequest) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
-	}
-	return ""
-}
-
-func (x *CreateNodeRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
 	}
 	return ""
 }
@@ -529,10 +521,9 @@ type ConsumeRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// request_id makes a retry charge nothing a second time.
 	RequestId     string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	SessionToken  string `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
-	NodeId        uint64 `protobuf:"varint,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Resource      string `protobuf:"bytes,4,opt,name=resource,proto3" json:"resource,omitempty"`
-	Amount        int64  `protobuf:"varint,5,opt,name=amount,proto3" json:"amount,omitempty"`
+	NodeId        uint64 `protobuf:"varint,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Resource      string `protobuf:"bytes,3,opt,name=resource,proto3" json:"resource,omitempty"`
+	Amount        int64  `protobuf:"varint,4,opt,name=amount,proto3" json:"amount,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -570,13 +561,6 @@ func (*ConsumeRequest) Descriptor() ([]byte, []int) {
 func (x *ConsumeRequest) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
-	}
-	return ""
-}
-
-func (x *ConsumeRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
 	}
 	return ""
 }
@@ -640,8 +624,7 @@ func (*ConsumeResponse) Descriptor() ([]byte, []int) {
 
 type CancelNodeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionToken  string                 `protobuf:"bytes,1,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
-	NodeId        uint64                 `protobuf:"varint,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeId        uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -674,13 +657,6 @@ func (x *CancelNodeRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CancelNodeRequest.ProtoReflect.Descriptor instead.
 func (*CancelNodeRequest) Descriptor() ([]byte, []int) {
 	return file_governor_v1_governor_proto_rawDescGZIP(), []int{7}
-}
-
-func (x *CancelNodeRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
-	}
-	return ""
 }
 
 func (x *CancelNodeRequest) GetNodeId() uint64 {
@@ -728,8 +704,7 @@ func (*CancelNodeResponse) Descriptor() ([]byte, []int) {
 
 type CloseNodeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionToken  string                 `protobuf:"bytes,1,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
-	NodeId        uint64                 `protobuf:"varint,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeId        uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -762,13 +737,6 @@ func (x *CloseNodeRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CloseNodeRequest.ProtoReflect.Descriptor instead.
 func (*CloseNodeRequest) Descriptor() ([]byte, []int) {
 	return file_governor_v1_governor_proto_rawDescGZIP(), []int{9}
-}
-
-func (x *CloseNodeRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
-	}
-	return ""
 }
 
 func (x *CloseNodeRequest) GetNodeId() uint64 {
@@ -816,8 +784,7 @@ func (*CloseNodeResponse) Descriptor() ([]byte, []int) {
 
 type WatchNodeRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionToken  string                 `protobuf:"bytes,1,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
-	NodeId        uint64                 `protobuf:"varint,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	NodeId        uint64                 `protobuf:"varint,1,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -850,13 +817,6 @@ func (x *WatchNodeRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use WatchNodeRequest.ProtoReflect.Descriptor instead.
 func (*WatchNodeRequest) Descriptor() ([]byte, []int) {
 	return file_governor_v1_governor_proto_rawDescGZIP(), []int{11}
-}
-
-func (x *WatchNodeRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
-	}
-	return ""
 }
 
 func (x *WatchNodeRequest) GetNodeId() uint64 {
@@ -913,10 +873,8 @@ func (x *WatchNodeResponse) GetState() State {
 
 type OpenSessionRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// api_key selects the node the session is confined to.
-	ApiKey string `protobuf:"bytes,1,opt,name=api_key,json=apiKey,proto3" json:"api_key,omitempty"`
 	// ttl is how long the session lives without a heartbeat; zero means forever.
-	Ttl           *durationpb.Duration `protobuf:"bytes,2,opt,name=ttl,proto3" json:"ttl,omitempty"`
+	Ttl           *durationpb.Duration `protobuf:"bytes,1,opt,name=ttl,proto3" json:"ttl,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -951,13 +909,6 @@ func (*OpenSessionRequest) Descriptor() ([]byte, []int) {
 	return file_governor_v1_governor_proto_rawDescGZIP(), []int{13}
 }
 
-func (x *OpenSessionRequest) GetApiKey() string {
-	if x != nil {
-		return x.ApiKey
-	}
-	return ""
-}
-
 func (x *OpenSessionRequest) GetTtl() *durationpb.Duration {
 	if x != nil {
 		return x.Ttl
@@ -967,7 +918,7 @@ func (x *OpenSessionRequest) GetTtl() *durationpb.Duration {
 
 type OpenSessionResponse struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
-	// session_token is a secret that names the session on every later call.
+	// session_token is the secret to send as the bearer on every later call.
 	SessionToken string `protobuf:"bytes,1,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
 	// scope_id is the node the session is confined to, with its whole subtree.
 	ScopeId uint64 `protobuf:"varint,2,opt,name=scope_id,json=scopeId,proto3" json:"scope_id,omitempty"`
@@ -1030,7 +981,6 @@ func (x *OpenSessionResponse) GetExpiresAt() *timestamppb.Timestamp {
 
 type HeartbeatRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionToken  string                 `protobuf:"bytes,1,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1063,13 +1013,6 @@ func (x *HeartbeatRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use HeartbeatRequest.ProtoReflect.Descriptor instead.
 func (*HeartbeatRequest) Descriptor() ([]byte, []int) {
 	return file_governor_v1_governor_proto_rawDescGZIP(), []int{15}
-}
-
-func (x *HeartbeatRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
-	}
-	return ""
 }
 
 type HeartbeatResponse struct {
@@ -1118,7 +1061,6 @@ func (x *HeartbeatResponse) GetExpiresAt() *timestamppb.Timestamp {
 
 type CloseSessionRequest struct {
 	state         protoimpl.MessageState `protogen:"open.v1"`
-	SessionToken  string                 `protobuf:"bytes,1,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1151,13 +1093,6 @@ func (x *CloseSessionRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use CloseSessionRequest.ProtoReflect.Descriptor instead.
 func (*CloseSessionRequest) Descriptor() ([]byte, []int) {
 	return file_governor_v1_governor_proto_rawDescGZIP(), []int{17}
-}
-
-func (x *CloseSessionRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
-	}
-	return ""
 }
 
 type CloseSessionResponse struct {
@@ -1199,12 +1134,11 @@ func (*CloseSessionResponse) Descriptor() ([]byte, []int) {
 type AcquireRequest struct {
 	state protoimpl.MessageState `protogen:"open.v1"`
 	// request_id makes a retry return the lease granted the first time.
-	RequestId    string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
-	SessionToken string `protobuf:"bytes,2,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
-	NodeId       uint64 `protobuf:"varint,3,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
-	Class        string `protobuf:"bytes,4,opt,name=class,proto3" json:"class,omitempty"`
+	RequestId string `protobuf:"bytes,1,opt,name=request_id,json=requestId,proto3" json:"request_id,omitempty"`
+	NodeId    uint64 `protobuf:"varint,2,opt,name=node_id,json=nodeId,proto3" json:"node_id,omitempty"`
+	Class     string `protobuf:"bytes,3,opt,name=class,proto3" json:"class,omitempty"`
 	// max_hold expires the lease after this long; unset means no maximum.
-	MaxHold       *durationpb.Duration `protobuf:"bytes,5,opt,name=max_hold,json=maxHold,proto3" json:"max_hold,omitempty"`
+	MaxHold       *durationpb.Duration `protobuf:"bytes,4,opt,name=max_hold,json=maxHold,proto3" json:"max_hold,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1242,13 +1176,6 @@ func (*AcquireRequest) Descriptor() ([]byte, []int) {
 func (x *AcquireRequest) GetRequestId() string {
 	if x != nil {
 		return x.RequestId
-	}
-	return ""
-}
-
-func (x *AcquireRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
 	}
 	return ""
 }
@@ -1320,13 +1247,12 @@ func (x *AcquireResponse) GetLeaseId() uint64 {
 }
 
 type ReleaseRequest struct {
-	state        protoimpl.MessageState `protogen:"open.v1"`
-	SessionToken string                 `protobuf:"bytes,1,opt,name=session_token,json=sessionToken,proto3" json:"session_token,omitempty"`
-	LeaseId      uint64                 `protobuf:"varint,2,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
+	state   protoimpl.MessageState `protogen:"open.v1"`
+	LeaseId uint64                 `protobuf:"varint,1,opt,name=lease_id,json=leaseId,proto3" json:"lease_id,omitempty"`
 	// latency is how long the guarded operation took; unset means not measured.
-	Latency *durationpb.Duration `protobuf:"bytes,3,opt,name=latency,proto3" json:"latency,omitempty"`
+	Latency *durationpb.Duration `protobuf:"bytes,2,opt,name=latency,proto3" json:"latency,omitempty"`
 	// overloaded reports that the downstream signalled overload.
-	Overloaded    bool `protobuf:"varint,4,opt,name=overloaded,proto3" json:"overloaded,omitempty"`
+	Overloaded    bool `protobuf:"varint,3,opt,name=overloaded,proto3" json:"overloaded,omitempty"`
 	unknownFields protoimpl.UnknownFields
 	sizeCache     protoimpl.SizeCache
 }
@@ -1359,13 +1285,6 @@ func (x *ReleaseRequest) ProtoReflect() protoreflect.Message {
 // Deprecated: Use ReleaseRequest.ProtoReflect.Descriptor instead.
 func (*ReleaseRequest) Descriptor() ([]byte, []int) {
 	return file_governor_v1_governor_proto_rawDescGZIP(), []int{21}
-}
-
-func (x *ReleaseRequest) GetSessionToken() string {
-	if x != nil {
-		return x.SessionToken
-	}
-	return ""
 }
 
 func (x *ReleaseRequest) GetLeaseId() uint64 {
@@ -1535,67 +1454,57 @@ const file_governor_v1_governor_proto_rawDesc = "" +
 	"\trequested\x18\x06 \x01(\x03R\trequested\x12&\n" +
 	"\x0ftop_consumer_id\x18\a \x01(\x04R\rtopConsumerId\x12*\n" +
 	"\x11top_consumer_name\x18\b \x01(\tR\x0ftopConsumerName\x12*\n" +
-	"\x11top_consumer_used\x18\t \x01(\x03R\x0ftopConsumerUsed\"\x9b\x01\n" +
+	"\x11top_consumer_used\x18\t \x01(\x03R\x0ftopConsumerUsed\"v\n" +
 	"\x11CreateNodeRequest\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
-	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\x12\x1b\n" +
-	"\tparent_id\x18\x03 \x01(\x04R\bparentId\x12%\n" +
-	"\x04spec\x18\x04 \x01(\v2\x11.governor.v1.SpecR\x04spec\"-\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x1b\n" +
+	"\tparent_id\x18\x02 \x01(\x04R\bparentId\x12%\n" +
+	"\x04spec\x18\x03 \x01(\v2\x11.governor.v1.SpecR\x04spec\"-\n" +
 	"\x12CreateNodeResponse\x12\x17\n" +
-	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\"\xa1\x01\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\"|\n" +
 	"\x0eConsumeRequest\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
-	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\x12\x17\n" +
-	"\anode_id\x18\x03 \x01(\x04R\x06nodeId\x12\x1a\n" +
-	"\bresource\x18\x04 \x01(\tR\bresource\x12\x16\n" +
-	"\x06amount\x18\x05 \x01(\x03R\x06amount\"\x11\n" +
-	"\x0fConsumeResponse\"Q\n" +
-	"\x11CancelNodeRequest\x12#\n" +
-	"\rsession_token\x18\x01 \x01(\tR\fsessionToken\x12\x17\n" +
-	"\anode_id\x18\x02 \x01(\x04R\x06nodeId\"\x14\n" +
-	"\x12CancelNodeResponse\"P\n" +
-	"\x10CloseNodeRequest\x12#\n" +
-	"\rsession_token\x18\x01 \x01(\tR\fsessionToken\x12\x17\n" +
-	"\anode_id\x18\x02 \x01(\x04R\x06nodeId\"\x13\n" +
-	"\x11CloseNodeResponse\"P\n" +
-	"\x10WatchNodeRequest\x12#\n" +
-	"\rsession_token\x18\x01 \x01(\tR\fsessionToken\x12\x17\n" +
-	"\anode_id\x18\x02 \x01(\x04R\x06nodeId\"=\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\anode_id\x18\x02 \x01(\x04R\x06nodeId\x12\x1a\n" +
+	"\bresource\x18\x03 \x01(\tR\bresource\x12\x16\n" +
+	"\x06amount\x18\x04 \x01(\x03R\x06amount\"\x11\n" +
+	"\x0fConsumeResponse\",\n" +
+	"\x11CancelNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\"\x14\n" +
+	"\x12CancelNodeResponse\"+\n" +
+	"\x10CloseNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\"\x13\n" +
+	"\x11CloseNodeResponse\"+\n" +
+	"\x10WatchNodeRequest\x12\x17\n" +
+	"\anode_id\x18\x01 \x01(\x04R\x06nodeId\"=\n" +
 	"\x11WatchNodeResponse\x12(\n" +
-	"\x05state\x18\x01 \x01(\x0e2\x12.governor.v1.StateR\x05state\"Z\n" +
-	"\x12OpenSessionRequest\x12\x17\n" +
-	"\aapi_key\x18\x01 \x01(\tR\x06apiKey\x12+\n" +
-	"\x03ttl\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\"\x90\x01\n" +
+	"\x05state\x18\x01 \x01(\x0e2\x12.governor.v1.StateR\x05state\"A\n" +
+	"\x12OpenSessionRequest\x12+\n" +
+	"\x03ttl\x18\x01 \x01(\v2\x19.google.protobuf.DurationR\x03ttl\"\x90\x01\n" +
 	"\x13OpenSessionResponse\x12#\n" +
 	"\rsession_token\x18\x01 \x01(\tR\fsessionToken\x12\x19\n" +
 	"\bscope_id\x18\x02 \x01(\x04R\ascopeId\x129\n" +
 	"\n" +
-	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"7\n" +
-	"\x10HeartbeatRequest\x12#\n" +
-	"\rsession_token\x18\x01 \x01(\tR\fsessionToken\"N\n" +
+	"expires_at\x18\x03 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\x12\n" +
+	"\x10HeartbeatRequest\"N\n" +
 	"\x11HeartbeatResponse\x129\n" +
 	"\n" +
-	"expires_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\":\n" +
-	"\x13CloseSessionRequest\x12#\n" +
-	"\rsession_token\x18\x01 \x01(\tR\fsessionToken\"\x16\n" +
-	"\x14CloseSessionResponse\"\xb9\x01\n" +
+	"expires_at\x18\x01 \x01(\v2\x1a.google.protobuf.TimestampR\texpiresAt\"\x15\n" +
+	"\x13CloseSessionRequest\"\x16\n" +
+	"\x14CloseSessionResponse\"\x94\x01\n" +
 	"\x0eAcquireRequest\x12\x1d\n" +
 	"\n" +
-	"request_id\x18\x01 \x01(\tR\trequestId\x12#\n" +
-	"\rsession_token\x18\x02 \x01(\tR\fsessionToken\x12\x17\n" +
-	"\anode_id\x18\x03 \x01(\x04R\x06nodeId\x12\x14\n" +
-	"\x05class\x18\x04 \x01(\tR\x05class\x124\n" +
-	"\bmax_hold\x18\x05 \x01(\v2\x19.google.protobuf.DurationR\amaxHold\",\n" +
+	"request_id\x18\x01 \x01(\tR\trequestId\x12\x17\n" +
+	"\anode_id\x18\x02 \x01(\x04R\x06nodeId\x12\x14\n" +
+	"\x05class\x18\x03 \x01(\tR\x05class\x124\n" +
+	"\bmax_hold\x18\x04 \x01(\v2\x19.google.protobuf.DurationR\amaxHold\",\n" +
 	"\x0fAcquireResponse\x12\x19\n" +
-	"\blease_id\x18\x01 \x01(\x04R\aleaseId\"\xa5\x01\n" +
-	"\x0eReleaseRequest\x12#\n" +
-	"\rsession_token\x18\x01 \x01(\tR\fsessionToken\x12\x19\n" +
-	"\blease_id\x18\x02 \x01(\x04R\aleaseId\x123\n" +
-	"\alatency\x18\x03 \x01(\v2\x19.google.protobuf.DurationR\alatency\x12\x1e\n" +
+	"\blease_id\x18\x01 \x01(\x04R\aleaseId\"\x80\x01\n" +
+	"\x0eReleaseRequest\x12\x19\n" +
+	"\blease_id\x18\x01 \x01(\x04R\aleaseId\x123\n" +
+	"\alatency\x18\x02 \x01(\v2\x19.google.protobuf.DurationR\alatency\x12\x1e\n" +
 	"\n" +
-	"overloaded\x18\x04 \x01(\bR\n" +
+	"overloaded\x18\x03 \x01(\bR\n" +
 	"overloaded\"\x11\n" +
 	"\x0fReleaseResponse\",\n" +
 	"\x0fValidateRequest\x12\x19\n" +
