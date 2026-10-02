@@ -120,6 +120,11 @@ Ending a node, for any terminal state, in one atomic step:
 
 Ending a node that has already ended is a no-op. The root cannot be ended.
 
+An ended node is remembered for the **node retention**, a day by default, and is
+then removed together with its subtree. What it consumed stays in the totals of
+its ancestors. A session confined to a removed node is ended. After the removal
+the node's id is unknown, and its name can be given to a new node.
+
 ## 4. Sessions and fencing
 
 A worker process opens a **session** with a TTL. Every lease belongs to one
@@ -161,8 +166,8 @@ These hold between any two operations. The tests check them after every step of
 randomized operation sequences.
 
 - **I1 Quota bound.** For every node and resource with a limit: `used ≤ limit`.
-- **I2 Quota conservation.** `used(n) = self(n) + Σ used(children) + reaped(n)`,
-  where `reaped` is usage of garbage-collected descendants. Usage never decreases.
+- **I2 Quota conservation.** `used(n) = self(n) + Σ used(children) + gone(n)`,
+  where `gone` is the usage of children that have been removed. Usage never decreases.
 - **I3 Lease conservation.** `held(n, class) = leases held directly at n + Σ held(children, class)`.
 - **I4 Lease bound.** `held ≤ limit`, except transiently after a limit is lowered
   (§7). In that case no lease is granted through that node until `held < limit`.
@@ -262,8 +267,9 @@ On each tool call it:
 If any step is refused, the hook exits 2 and prints the reason for the model.
 
 - **Find or create.** `EnsureNode` returns the newest child with a given name even
-  if it has ended. A run that was cancelled or timed out therefore stays refused;
-  asking again never replaces it with a fresh budget.
+  if it has ended. A run that was cancelled or timed out therefore stays refused
+  for as long as the node retention; asking again within it never replaces the
+  run with a fresh budget.
 - **Calls by API key.** A hook is a short-lived process, so `EnsureNode` and
   `Consume` accept the tenant's API key directly. The server keeps one standing
   session per key for these calls. Leases still need a session of their own.
