@@ -1,5 +1,7 @@
 # Governor
 
+[![CI](https://github.com/Avik-creator/governor/actions/workflows/ci.yml/badge.svg)](https://github.com/Avik-creator/governor/actions/workflows/ci.yml)
+
 A resource governor for autonomous and fan-out workloads.
 
 An agent that spawns sub-agents, a crawler that follows every link, a job that
