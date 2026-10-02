@@ -9,6 +9,7 @@ import (
 	"errors"
 	"fmt"
 	"io/fs"
+	"iter"
 	"sync"
 	"time"
 
@@ -105,6 +106,41 @@ func (s *Store) LastSeq() uint64 {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	return s.durable
+}
+
+// Events yields every stored event in order, for core.Restore.
+func (s *Store) Events(ctx context.Context) iter.Seq2[core.Event, error] {
+	return func(yield func(core.Event, error) bool) {
+		query, args, err := s.db.From(eventsTable).Select("data").Order(goqu.C("seq").Asc()).ToSQL()
+		if err != nil {
+			yield(core.Event{}, fmt.Errorf("store: build query: %w", err))
+			return
+		}
+		rows, err := s.sqlDB.QueryContext(ctx, query, args...)
+		if err != nil {
+			yield(core.Event{}, fmt.Errorf("store: read events: %w", err))
+			return
+		}
+		defer rows.Close()
+		for rows.Next() {
+			var data []byte
+			var ev core.Event
+			if err := rows.Scan(&data); err != nil {
+				yield(core.Event{}, fmt.Errorf("store: read events: %w", err))
+				return
+			}
+			if err := json.Unmarshal(data, &ev); err != nil {
+				yield(core.Event{}, fmt.Errorf("store: decode event: %w", err))
+				return
+			}
+			if !yield(ev, nil) {
+				return
+			}
+		}
+		if err := rows.Err(); err != nil {
+			yield(core.Event{}, fmt.Errorf("store: read events: %w", err))
+		}
+	}
 }
 
 // Failed returns a channel that is closed once a write has failed.
