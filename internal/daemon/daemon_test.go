@@ -8,12 +8,17 @@ import (
 	"testing"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/codes"
+	"google.golang.org/grpc/credentials"
 	"google.golang.org/grpc/credentials/insecure"
 	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
 
 	"github.com/Avik-creator/governor/internal/config"
 	"github.com/Avik-creator/governor/internal/core"
 	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
+	"github.com/Avik-creator/governor/internal/transport"
+	"github.com/Avik-creator/governor/internal/transport/certtest"
 )
 
 // startDaemon runs a governord that keeps nothing on disk and stops it when the test ends.
@@ -124,5 +129,75 @@ func TestMetricsAddressInUse(t *testing.T) {
 	first := startDaemon(t, testConfig("127.0.0.1:0"))
 	if _, err := Start(t.Context(), testConfig(first.MetricsAddr())); err == nil {
 		t.Fatal("Start on a metrics address in use succeeded")
+	}
+}
+
+// openSession opens a session on the daemon as tenant a, over a connection secured by creds.
+func openSession(t *testing.T, d *Daemon, creds credentials.TransportCredentials) error {
+	t.Helper()
+	conn, err := grpc.NewClient(d.Addr(), grpc.WithTransportCredentials(creds))
+	if err != nil {
+		t.Fatalf("NewClient: %v", err)
+	}
+	defer conn.Close()
+	ctx := metadata.AppendToOutgoingContext(t.Context(), "authorization", "Bearer key-a")
+	_, err = pb.NewGovernorServiceClient(conn).OpenSession(ctx, &pb.OpenSessionRequest{})
+	return err
+}
+
+func TestTLS(t *testing.T) {
+	certFile, keyFile := certtest.SelfSigned(t)
+	cfg := testConfig("")
+	cfg.TLS = &config.TLS{CertFile: certFile, KeyFile: keyFile}
+	d := startDaemon(t, cfg)
+
+	trusting, err := transport.Trusting(certFile)
+	if err != nil {
+		t.Fatalf("Trusting: %v", err)
+	}
+	if err := openSession(t, d, trusting); err != nil {
+		t.Errorf("OpenSession over TLS: %v", err)
+	}
+
+	// A client that speaks plain text, or trusts another certificate, never gets to send its key.
+	otherCert, _ := certtest.SelfSigned(t)
+	stranger, err := transport.Trusting(otherCert)
+	if err != nil {
+		t.Fatalf("Trusting: %v", err)
+	}
+	system, err := transport.FromEnv(func(name string) string { return map[string]string{transport.EnvTLS: "1"}[name] })
+	if err != nil {
+		t.Fatalf("FromEnv: %v", err)
+	}
+	refused := map[string]credentials.TransportCredentials{
+		"plain text":          insecure.NewCredentials(),
+		"another certificate": stranger,
+		"the system's roots":  system,
+	}
+	for name, creds := range refused {
+		if err := openSession(t, d, creds); status.Code(err) != codes.Unavailable {
+			t.Errorf("OpenSession with %s = %v, want Unavailable", name, err)
+		}
+	}
+}
+
+func TestPlaintextRefusesTLS(t *testing.T) {
+	certFile, _ := certtest.SelfSigned(t)
+	trusting, err := transport.Trusting(certFile)
+	if err != nil {
+		t.Fatalf("Trusting: %v", err)
+	}
+	d := startDaemon(t, testConfig(""))
+	if err := openSession(t, d, trusting); status.Code(err) != codes.Unavailable {
+		t.Errorf("OpenSession over TLS to a plain-text daemon = %v, want Unavailable", err)
+	}
+}
+
+func TestTLSCertificateMustLoad(t *testing.T) {
+	certFile, _ := certtest.SelfSigned(t)
+	cfg := testConfig("")
+	cfg.TLS = &config.TLS{CertFile: certFile, KeyFile: "/nonexistent/server.key"}
+	if _, err := Start(t.Context(), cfg); err == nil || !strings.Contains(err.Error(), "tls") {
+		t.Errorf("Start = %v, want an error about tls", err)
 	}
 }

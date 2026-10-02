@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/credentials/insecure"
 
 	"github.com/Avik-creator/governor/internal/config"
 	"github.com/Avik-creator/governor/internal/core"
@@ -19,6 +20,7 @@ import (
 	"github.com/Avik-creator/governor/internal/metrics"
 	"github.com/Avik-creator/governor/internal/server"
 	"github.com/Avik-creator/governor/internal/store"
+	"github.com/Avik-creator/governor/internal/transport"
 )
 
 // Daemon is a governord that is serving; it stops when the context given to Start is done.
@@ -59,6 +61,14 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 		return nil, err
 	}
 
+	// A certificate that cannot be loaded stops governord before it opens anything.
+	creds := insecure.NewCredentials()
+	if cfg.TLS != nil {
+		var err error
+		if creds, err = transport.Server(cfg.TLS.CertFile, cfg.TLS.KeyFile); err != nil {
+			return nil, fmt.Errorf("tls: %w", err)
+		}
+	}
 	meter := metrics.New()
 	// Without a database nothing is recorded, so nothing survives a restart.
 	var (
@@ -130,6 +140,7 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 	}
 	// The metrics go first, so they see the status each call ends with.
 	grpcServer := grpc.NewServer(
+		grpc.Creds(creds),
 		grpc.ChainUnaryInterceptor(meter.UnaryInterceptor, srv.UnaryInterceptor),
 		grpc.ChainStreamInterceptor(meter.StreamInterceptor, srv.StreamInterceptor),
 	)
@@ -147,7 +158,7 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 	served := make(chan error, 1)
 	go func() { served <- grpcServer.Serve(lis) }()
 	slog.Info("governord: serving", "addr", lis.Addr().String(), "tenants", len(cfg.Tenants),
-		"durable", cfg.DatabaseURL != "", "adaptive", len(tuned), "metrics", metricsAddr)
+		"durable", cfg.DatabaseURL != "", "tls", cfg.TLS != nil, "adaptive", len(tuned), "metrics", metricsAddr)
 
 	d := &Daemon{addr: lis.Addr().String(), metrics: metricsAddr, done: make(chan struct{})}
 	go func() {
