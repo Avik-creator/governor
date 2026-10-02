@@ -231,8 +231,11 @@ attempt counts.
   caller receives its answer. Changes are batched into one transaction per flush.
 - **Idempotent requests.** Every mutating request carries a request id. Repeating
   an id returns the original result and applies nothing twice.
-- **Restart.** Nodes, usage, live leases and sessions are reloaded. Each session
-  gets one fresh TTL to reconnect; sessions that do not heartbeat expire.
+- **Restart.** Nodes, usage, live leases and sessions are rebuilt by replaying the
+  recorded events. Session tokens are stored as hashes, so a worker carries on
+  with the token and leases it had. Each session gets one fresh TTL to reconnect;
+  sessions that do not heartbeat expire. A session with no stored token could
+  never be used again, so it is closed at start.
 - **Fail closed.** While `governord` or Postgres is unreachable, clients deny new
   work. Work holding a lease stops when its session's local deadline passes.
 
