@@ -22,35 +22,56 @@ type Server struct {
 
 	engine *core.Engine
 	commit Committer
+	tokens TokenStore
 	keys   map[digest]core.NodeID // API key to the node it confines a session to
 
-	mu     sync.Mutex
-	tokens map[digest]core.SessionID
-	seen   dedup // outcomes of requests that carried a request id
+	mu       sync.Mutex
+	sessions map[digest]core.SessionID // token hash to the session it names
+	seen     dedup                     // outcomes of requests that carried a request id
 
 	closed    chan struct{} // stops the goroutines that wait for sessions to end
 	closeOnce sync.Once
 	wg        sync.WaitGroup
 }
 
-// New returns a Server whose API keys each confine a session to one node.
-func New(engine *core.Engine, commit Committer, keys map[string]core.NodeID) (*Server, error) {
-	if engine == nil || commit == nil {
-		return nil, errors.New("server: engine and committer are required")
+// Config holds what a Server is built from; all three stores are required.
+type Config struct {
+	// Engine is the authority the server exposes.
+	Engine *core.Engine
+
+	// Committer says when a change is durable; NopCommitter runs without a store.
+	Committer Committer
+
+	// Tokens keeps session tokens across restarts; NopTokenStore keeps none.
+	Tokens TokenStore
+
+	// Keys maps each API key to the node its sessions are confined to.
+	Keys map[string]core.NodeID
+}
+
+// New returns a Server that has taken over the sessions already in the engine.
+func New(ctx context.Context, cfg Config) (*Server, error) {
+	if cfg.Engine == nil || cfg.Committer == nil || cfg.Tokens == nil {
+		return nil, errors.New("server: engine, committer and token store are required")
 	}
 	s := &Server{
-		engine: engine,
-		commit: commit,
-		keys:   make(map[digest]core.NodeID, len(keys)),
-		tokens: make(map[digest]core.SessionID),
-		closed: make(chan struct{}),
+		engine:   cfg.Engine,
+		commit:   cfg.Committer,
+		tokens:   cfg.Tokens,
+		keys:     make(map[digest]core.NodeID, len(cfg.Keys)),
+		sessions: make(map[digest]core.SessionID),
+		closed:   make(chan struct{}),
 	}
-	for key, scope := range keys {
+	for key, scope := range cfg.Keys {
 		// An empty key would match a caller that sent no credentials at all.
 		if key == "" {
 			return nil, errors.New("server: empty API key")
 		}
 		s.keys[hash(key)] = scope
+	}
+	if err := s.adopt(ctx); err != nil {
+		s.Close()
+		return nil, err
 	}
 	return s, nil
 }
@@ -176,7 +197,11 @@ func (s *Server) OpenSession(ctx context.Context, req *pb.OpenSessionRequest) (*
 	}
 	// rand.Text carries at least 128 bits of randomness, so it cannot be guessed.
 	token := rand.Text()
-	s.issue(token, sid)
+	if err := s.tokens.SaveToken(ctx, hash(token), sid); err != nil {
+		_, _ = s.engine.CloseSession(sid)
+		return nil, status.Errorf(codes.Unavailable, "governor: save token: %v", err)
+	}
+	s.issue(hash(token), sid)
 	return &pb.OpenSessionResponse{
 		SessionToken: token,
 		ScopeId:      uint64(scope),

@@ -2,10 +2,14 @@ package server
 
 import (
 	"context"
+	"crypto/sha256"
 	"errors"
 	"fmt"
+	"iter"
+	"maps"
 	"math"
 	"net"
+	"slices"
 	"sync"
 	"testing"
 	"time"
@@ -56,12 +60,76 @@ func (c *stubCommitter) set(err error, gate chan struct{}) {
 	c.err, c.gate = err, gate
 }
 
+// memTokens is a TokenStore held in memory, standing in for Postgres.
+type memTokens struct {
+	mu     sync.Mutex
+	tokens map[[sha256.Size]byte]core.SessionID
+	err    error // returned by SaveToken when set
+}
+
+func (m *memTokens) SaveToken(_ context.Context, hash [sha256.Size]byte, sid core.SessionID) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.err != nil {
+		return m.err
+	}
+	m.tokens[hash] = sid
+	return nil
+}
+
+func (m *memTokens) DeleteToken(_ context.Context, hash [sha256.Size]byte) error {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	delete(m.tokens, hash)
+	return nil
+}
+
+func (m *memTokens) LoadTokens(context.Context) (map[[sha256.Size]byte]core.SessionID, error) {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return maps.Clone(m.tokens), nil
+}
+
+func (m *memTokens) len() int {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return len(m.tokens)
+}
+
+// eventLog is a Sink that keeps every event, standing in for the store.
+type eventLog struct {
+	mu     sync.Mutex
+	events []core.Event
+}
+
+func (l *eventLog) Emit(ev core.Event) {
+	l.mu.Lock()
+	defer l.mu.Unlock()
+	l.events = append(l.events, ev)
+}
+
+// replay yields the logged events the way the store would after a restart.
+func (l *eventLog) replay() iter.Seq2[core.Event, error] {
+	l.mu.Lock()
+	events := slices.Clone(l.events)
+	l.mu.Unlock()
+	return func(yield func(core.Event, error) bool) {
+		for _, ev := range events {
+			if !yield(ev, nil) {
+				return
+			}
+		}
+	}
+}
+
 // harness is a Server behind an in-memory gRPC connection, with two tenants.
 type harness struct {
 	t      *testing.T
 	engine *core.Engine
 	clock  *core.ManualClock
 	commit *stubCommitter
+	tokens *memTokens
+	log    *eventLog
 	server *Server
 	client pb.GovernorServiceClient
 	admin  core.SessionID
@@ -74,22 +142,56 @@ func newHarness(t *testing.T, root, tenant core.Spec) *harness {
 		t:      t,
 		clock:  core.NewManualClock(time.Unix(1_700_000_000, 0)),
 		commit: &stubCommitter{},
+		tokens: &memTokens{tokens: make(map[[sha256.Size]byte]core.SessionID)},
+		log:    &eventLog{},
 	}
 	var err error
-	if h.engine, err = core.New(core.Config{Clock: h.clock, Root: root}); err != nil {
+	if h.engine, err = core.New(core.Config{Clock: h.clock, Sink: h.log, Root: root}); err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
-	if h.admin, _, _, err = h.engine.OpenSession(core.RootID, 0); err != nil {
+	// The server closes this session when it starts, as it holds no token for it.
+	setup, _, _, err := h.engine.OpenSession(core.RootID, 0)
+	if err != nil {
 		t.Fatalf("OpenSession: %v", err)
 	}
 	for _, id := range []*core.NodeID{&h.a, &h.b} {
-		if *id, _, err = h.engine.CreateNode(h.admin, core.RootID, tenant); err != nil {
+		if *id, _, err = h.engine.CreateNode(setup, core.RootID, tenant); err != nil {
 			t.Fatalf("CreateNode: %v", err)
 		}
 	}
-	h.server, err = New(h.engine, h.commit, map[string]core.NodeID{keyA: h.a, keyB: h.b})
+	h.serve()
+	return h
+}
+
+// restart replaces the engine with one restored from the log, behind a new server.
+func (h *harness) restart() {
+	h.t.Helper()
+	h.server.Close()
+	engine, err := core.Restore(core.Config{Clock: h.clock, Sink: h.log}, h.log.replay())
+	if err != nil {
+		h.t.Fatalf("Restore: %v", err)
+	}
+	h.engine = engine
+	h.serve()
+}
+
+// serve starts a Server for the harness's engine behind an in-memory connection.
+func (h *harness) serve() {
+	h.t.Helper()
+	t := h.t
+	var err error
+	h.server, err = New(t.Context(), Config{
+		Engine:    h.engine,
+		Committer: h.commit,
+		Tokens:    h.tokens,
+		Keys:      map[string]core.NodeID{keyA: h.a, keyB: h.b},
+	})
 	if err != nil {
 		t.Fatalf("New: %v", err)
+	}
+	// In-process sessions are opened after the server has adopted the engine.
+	if h.admin, _, _, err = h.engine.OpenSession(core.RootID, 0); err != nil {
+		t.Fatalf("OpenSession: %v", err)
 	}
 
 	lis := bufconn.Listen(1 << 20)
@@ -106,13 +208,13 @@ func newHarness(t *testing.T, root, tenant core.Spec) *harness {
 	if err != nil {
 		t.Fatalf("grpc.NewClient: %v", err)
 	}
+	server := h.server
 	t.Cleanup(func() {
 		_ = conn.Close()
 		srv.Stop()
-		h.server.Close()
+		server.Close()
 	})
 	h.client = pb.NewGovernorServiceClient(conn)
-	return h
 }
 
 // as returns a context that carries secret as the bearer credential.
@@ -151,10 +253,10 @@ func (h *harness) used(id core.NodeID, r core.Resource) int64 {
 	return d.Used
 }
 
-func (h *harness) tokens() int {
+func (h *harness) live() int {
 	h.server.mu.Lock()
 	defer h.server.mu.Unlock()
-	return len(h.server.tokens)
+	return len(h.server.sessions)
 }
 
 // eventually waits for cond, which becomes true on another goroutine.
@@ -190,14 +292,24 @@ func TestNewRejects(t *testing.T) {
 	if err != nil {
 		t.Fatalf("core.New: %v", err)
 	}
-	if _, err := New(nil, NopCommitter{}, nil); err == nil {
-		t.Error("New accepted a nil engine")
+	full := Config{Engine: engine, Committer: NopCommitter{}, Tokens: NopTokenStore{}}
+	tests := []struct {
+		name   string
+		change func(*Config)
+	}{
+		{"nil engine", func(c *Config) { c.Engine = nil }},
+		{"nil committer", func(c *Config) { c.Committer = nil }},
+		{"nil token store", func(c *Config) { c.Tokens = nil }},
+		{"empty API key", func(c *Config) { c.Keys = map[string]core.NodeID{"": core.RootID} }},
 	}
-	if _, err := New(engine, nil, nil); err == nil {
-		t.Error("New accepted a nil committer")
-	}
-	if _, err := New(engine, NopCommitter{}, map[string]core.NodeID{"": core.RootID}); err == nil {
-		t.Error("New accepted an empty API key")
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := full
+			tc.change(&cfg)
+			if _, err := New(t.Context(), cfg); err == nil {
+				t.Error("New accepted the config")
+			}
+		})
 	}
 }
 
@@ -551,14 +663,14 @@ func TestWatchNode(t *testing.T) {
 func TestSessionEndForgetsToken(t *testing.T) {
 	h := newHarness(t, core.Spec{}, core.Spec{})
 	dying, closing, forever := h.open(keyA, 10*time.Second), h.open(keyA, time.Minute), h.open(keyA, 0)
-	if got := h.tokens(); got != 3 {
+	if got := h.live(); got != 3 {
 		t.Fatalf("tokens = %d, want 3", got)
 	}
 
 	// The dying worker never calls again; only the reaper notices.
 	h.clock.Advance(10 * time.Second)
 	h.engine.Reap()
-	eventually(t, "the expired session's token to be forgotten", func() bool { return h.tokens() == 2 })
+	eventually(t, "the expired session's token to be forgotten", func() bool { return h.live() == 2 })
 	_, err := h.client.Heartbeat(h.as(dying), &pb.HeartbeatRequest{})
 	wantStatus(t, err, codes.Unauthenticated, pb.Reason_REASON_SESSION_EXPIRED)
 
@@ -572,10 +684,66 @@ func TestSessionEndForgetsToken(t *testing.T) {
 	if _, err := h.client.CloseSession(h.as(closing), &pb.CloseSessionRequest{}); err != nil {
 		t.Fatalf("CloseSession: %v", err)
 	}
-	eventually(t, "the closed session's token to be forgotten", func() bool { return h.tokens() == 1 })
+	eventually(t, "the closed session's token to be forgotten", func() bool { return h.live() == 1 })
 
 	if _, err := h.client.Heartbeat(h.as(forever), &pb.HeartbeatRequest{}); err != nil {
 		t.Errorf("Heartbeat on a session without a ttl: %v", err)
+	}
+}
+
+func TestSessionsSurviveRestart(t *testing.T) {
+	h := newHarness(t, core.Spec{Limits: map[core.Class]int{"db": 1}}, core.Spec{})
+	kept, closed := h.open(keyA, time.Minute), h.open(keyA, time.Minute)
+	lease, err := h.client.Acquire(h.as(kept), &pb.AcquireRequest{NodeId: uint64(h.a), Class: "db"})
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+	if _, err := h.client.CloseSession(h.as(closed), &pb.CloseSessionRequest{}); err != nil {
+		t.Fatalf("CloseSession: %v", err)
+	}
+	eventually(t, "the closed session's token to leave the store", func() bool { return h.tokens.len() == 1 })
+	// A token whose session never made it into the record must not survive either.
+	if err := h.tokens.SaveToken(t.Context(), hash("stale"), 9999); err != nil {
+		t.Fatalf("SaveToken: %v", err)
+	}
+	orphan := h.admin
+
+	h.restart()
+
+	// The worker carries on with the token and the lease it had before.
+	if _, err := h.client.Heartbeat(h.as(kept), &pb.HeartbeatRequest{}); err != nil {
+		t.Errorf("Heartbeat with a token from before the restart: %v", err)
+	}
+	if _, err := h.client.Release(h.as(kept), &pb.ReleaseRequest{LeaseId: lease.GetLeaseId()}); err != nil {
+		t.Errorf("Release of a lease from before the restart: %v", err)
+	}
+	for name, token := range map[string]string{"closed": closed, "stale": "stale"} {
+		_, err := h.client.Heartbeat(h.as(token), &pb.HeartbeatRequest{})
+		if status.Code(err) != codes.Unauthenticated {
+			t.Errorf("Heartbeat with the %s token = %v, want Unauthenticated", name, err)
+		}
+	}
+	// A restored session that nobody holds a token for is closed at start.
+	if _, err := h.engine.Heartbeat(orphan); !errors.Is(err, core.ErrSessionExpired) {
+		t.Errorf("Heartbeat(session without a token) = %v, want ErrSessionExpired", err)
+	}
+	eventually(t, "the stale token to leave the store", func() bool { return h.tokens.len() == 1 })
+}
+
+func TestTokenStoreFailure(t *testing.T) {
+	h := newHarness(t, core.Spec{}, core.Spec{})
+	before := len(h.engine.Sessions())
+	h.tokens.mu.Lock()
+	h.tokens.err = errors.New("postgres is down")
+	h.tokens.mu.Unlock()
+
+	_, err := h.client.OpenSession(h.as(keyA), &pb.OpenSessionRequest{})
+	if status.Code(err) != codes.Unavailable {
+		t.Errorf("OpenSession = %v, want Unavailable", err)
+	}
+	// A session whose token could not be saved would be unreachable after a restart.
+	if got := len(h.engine.Sessions()); got != before {
+		t.Errorf("sessions = %d after a failed OpenSession, want %d", got, before)
 	}
 }
 
@@ -615,7 +783,7 @@ func TestCommitFailure(t *testing.T) {
 	if status.Code(err) != codes.Unavailable {
 		t.Errorf("OpenSession = %v, want Unavailable", err)
 	}
-	if got := h.tokens(); got != 1 {
+	if got := h.live(); got != 1 {
 		t.Errorf("tokens = %d after a failed OpenSession, want 1", got)
 	}
 

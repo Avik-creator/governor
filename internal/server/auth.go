@@ -47,31 +47,13 @@ func bearer(ctx context.Context) string {
 	return ""
 }
 
-// issue stores a session under the hash of its token until the session ends.
-func (s *Server) issue(token string, sid core.SessionID) {
-	key, ended := hash(token), s.engine.SessionDone(sid)
-	s.mu.Lock()
-	s.tokens[key] = sid
-	s.mu.Unlock()
-	s.wg.Go(func() {
-		select {
-		case <-ended:
-			s.mu.Lock()
-			delete(s.tokens, key)
-			s.mu.Unlock()
-			s.seen.forget(sid)
-		case <-s.closed:
-		}
-	})
-}
-
 // authenticate puts the caller's session into ctx, unless the method is public.
 func (s *Server) authenticate(ctx context.Context, method string) (context.Context, error) {
 	if public[method] {
 		return ctx, nil
 	}
 	s.mu.Lock()
-	sid, ok := s.tokens[hash(bearer(ctx))]
+	sid, ok := s.sessions[hash(bearer(ctx))]
 	s.mu.Unlock()
 	if !ok {
 		return ctx, toStatus(core.ErrSessionExpired)
