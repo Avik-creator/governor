@@ -11,6 +11,10 @@ database_url: ${GOVERNOR_DATABASE_URL}
 # How often expired sessions, leases and deadlines are applied.
 reap_interval: 1s
 
+# How long an ended task stays known before it is removed from memory. Its usage
+# still counts against its tenant afterwards.
+node_retention: 24h
+
 # Opens sessions that may act on every tenant. Leave empty to allow none.
 admin_key: ${GOVERNOR_ADMIN_KEY}
 

@@ -82,7 +82,12 @@ func Start(ctx context.Context, cfg *config.Config) (*Daemon, error) {
 			c.Observe(r)
 		}
 	}
-	engine, err := core.Restore(core.Config{Sink: sink, Observer: observer, Root: cfg.Root.Spec()}, events)
+	engine, err := core.Restore(core.Config{
+		Sink:          sink,
+		Observer:      observer,
+		NodeRetention: cfg.NodeRetention,
+		Root:          cfg.Root.Spec(),
+	}, events)
 	if err != nil {
 		return fail(fmt.Errorf("restore: %w", err))
 	}
