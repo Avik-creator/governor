@@ -372,7 +372,7 @@ func (e *Engine) endedErr(id LeaseID) error {
 
 // SetLimit changes a node's cap for a class; lowering it revokes nothing.
 func (e *Engine) SetLimit(id NodeID, class Class, limit int) (uint64, error) {
-	if class == "" || limit < 0 {
+	if class == "" || limit < Unlimited {
 		return 0, fmt.Errorf("%w: bad class or limit", ErrInvalid)
 	}
 	e.mu.Lock()
@@ -381,12 +381,5 @@ func (e *Engine) SetLimit(id NodeID, class Class, limit int) (uint64, error) {
 	if err != nil {
 		return 0, err
 	}
-	// Setting the limit it already has changes nothing, so nothing is recorded.
-	if old, ok := n.limits[class]; ok && old == limit {
-		return e.seq, nil
-	}
-	n.limits[class] = limit
-	e.emit(Event{Kind: EventLimitChanged, Node: n.id, Class: class, Limit: limit})
-	e.dispatch()
-	return e.seq, nil
+	return e.setLimit(n, class, limit), nil
 }

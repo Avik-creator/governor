@@ -77,6 +77,8 @@ type node struct {
 	limits map[Class]int
 	held   map[Class]int // leases held in this subtree
 
+	defaults *Defaults // what each new child starts with; nil means nothing
+
 	deadline time.Time // effective: the earliest on the chain
 	state    State
 	endedAt  time.Time // when the node ended; zero while it is active
@@ -149,13 +151,14 @@ func (s Spec) validate() error {
 	if s.Weight < 0 {
 		return fmt.Errorf("%w: weight is negative", ErrInvalid)
 	}
-	return nil
+	return s.Defaults.validate()
 }
 
-// clone returns s with its own copies of the limit maps.
+// clone returns s with its own copies of the limit maps and the defaults.
 func (s Spec) clone() Spec {
 	s.Quotas = maps.Clone(s.Quotas)
 	s.Limits = maps.Clone(s.Limits)
+	s.Defaults = s.Defaults.clone()
 	return s
 }
 
@@ -191,6 +194,7 @@ func (e *Engine) addNode(id NodeID, parent *node, spec Spec) *node {
 		top:      make(map[Resource]*node),
 		limits:   maps.Clone(spec.Limits),
 		held:     make(map[Class]int),
+		defaults: spec.Defaults.clone(),
 		deadline: spec.Deadline,
 		state:    StateActive,
 		leases:   make(map[LeaseID]*lease),
@@ -320,6 +324,8 @@ func (e *Engine) EnsureNode(
 			return 0, false, 0, err
 		}
 	}
+	// The spec is recorded as inherited, so replaying it needs no defaults.
+	spec = p.inherit(spec)
 	n := e.addNode(NodeID(e.nextID()), p, spec)
 	e.emit(Event{Kind: EventNodeCreated, Node: n.id, Parent: p.id, Spec: &spec})
 	if amount > 0 {

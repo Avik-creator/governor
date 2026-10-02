@@ -92,6 +92,16 @@ func sameCounts[K comparable](a, b map[K]int) bool {
 }
 
 // sameState fails unless got holds exactly the durable state of want.
+// sameDefaults compares two chains of defaults, treating an empty map as no map.
+func sameDefaults(a, b *Defaults) bool {
+	for ; a != nil && b != nil; a, b = a.Children, b.Children {
+		if !maps.Equal(a.Quotas, b.Quotas) {
+			return false
+		}
+	}
+	return a == nil && b == nil
+}
+
 func sameState(t *testing.T, want, got *Engine) {
 	t.Helper()
 	want.mu.Lock()
@@ -116,7 +126,7 @@ func sameState(t *testing.T, want, got *Engine) {
 			w.depth == g.depth && w.weight == g.weight && w.priority == g.priority &&
 			w.state == g.state && w.deadline.Equal(g.deadline) &&
 			maps.Equal(w.quota, g.quota) && maps.Equal(w.used, g.used) && maps.Equal(w.self, g.self) &&
-			maps.Equal(w.limits, g.limits) && sameCounts(w.held, g.held) &&
+			maps.Equal(w.limits, g.limits) && sameCounts(w.held, g.held) && sameDefaults(w.defaults, g.defaults) &&
 			maps.Equal(w.gone, g.gone) && w.endedAt.Equal(g.endedAt) &&
 			slices.Equal(slices.Sorted(maps.Keys(w.leases)), slices.Sorted(maps.Keys(g.leases)))
 		if !same {

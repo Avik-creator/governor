@@ -26,7 +26,7 @@ type NodeState struct {
 	ID     NodeID `json:"id"`
 	Parent NodeID `json:"parent,omitempty"`
 
-	// Spec holds the node's current limits and its effective deadline.
+	// Spec holds the node's current limits and defaults, and its effective deadline.
 	Spec    Spec      `json:"spec"`
 	State   State     `json:"state"`
 	EndedAt time.Time `json:"ended_at,omitzero"`
@@ -100,6 +100,7 @@ func (e *Engine) Snapshot() *Snapshot {
 				Deadline: n.deadline,
 				Weight:   n.weight,
 				Priority: n.priority,
+				Defaults: n.defaults.clone(),
 			},
 			State:   n.state,
 			EndedAt: n.endedAt,

@@ -43,6 +43,13 @@ func (a *auditor) Emit(ev Event) {
 				a.t.Errorf("I4: grant put node %d at %d of %d %s", n.id, n.held[ev.Class], limit, ev.Class)
 			}
 		}
+	case EventConsumed:
+		// I1: a consume never takes any node on the chain over its cap.
+		for n := a.e.nodes[ev.Node]; n != nil; n = n.parent {
+			if limit, ok := n.quota[ev.Resource]; ok && n.used[ev.Resource] > limit {
+				a.t.Errorf("I1: consume put node %d at %d of %d %s", n.id, n.used[ev.Resource], limit, ev.Resource)
+			}
+		}
 	case EventLeaseEnded:
 		// I5: a lease ends exactly once, and only after it was granted.
 		n, ok := a.ends[ev.Lease]
@@ -60,13 +67,6 @@ func checkInvariants(t *testing.T, e *Engine, terminal map[NodeID]State) {
 	defer e.mu.Unlock()
 
 	for _, n := range e.nodes {
-		// I1: usage never exceeds a cap.
-		for r, limit := range n.quota {
-			if n.used[r] > limit {
-				t.Fatalf("I1: node %d used %d of %d %s", n.id, n.used[r], limit, r)
-			}
-		}
-
 		// I2: a node's usage is its own, its children's and that of children since removed.
 		sumUsed := maps.Clone(n.self)
 		for r, u := range n.gone {
@@ -297,6 +297,44 @@ func (f *fuzzer) checkScope(sid SessionID, id NodeID, before uint64, err error) 
 	}
 }
 
+// checkEdit checks the outcome of a change sid made to id's caps, which its own scope is closed to.
+func (f *fuzzer) checkEdit(sid SessionID, id NodeID, before uint64, err error) {
+	f.t.Helper()
+	allowed := f.inScope(sid, id) && (f.scope[sid] != id || id == RootID)
+	forbidden := errors.Is(err, ErrForbidden)
+	switch {
+	case forbidden && allowed:
+		f.t.Fatalf("session %d was forbidden from changing node %d", sid, id)
+	case forbidden && f.audit.seq != before:
+		f.t.Fatalf("I9: forbidden change by session %d to node %d changed state", sid, id)
+	case !allowed && !forbidden && !errors.Is(err, ErrSessionExpired):
+		f.t.Fatalf("I9: session %d changed node %d, which it may not: %v", sid, id, err)
+	}
+}
+
+// setQuota raises, lowers or removes a random node's cap, often below what is already used.
+func (f *fuzzer) setQuota() {
+	sid := f.actor()
+	id, before := f.target(sid), f.audit.seq
+	_, err := f.e.SetQuota(sid, id, fuzzResources[f.rng.Intn(2)], int64(f.rng.Intn(80)-1))
+	f.checkEdit(sid, id, before, err)
+}
+
+// setDefaults gives a random node defaults for its children, or takes them away.
+func (f *fuzzer) setDefaults() {
+	var d *Defaults
+	if f.rng.Intn(4) != 0 {
+		d = &Defaults{Quotas: map[Resource]int64{fuzzResources[f.rng.Intn(2)]: int64(f.rng.Intn(60))}}
+		if f.rng.Intn(2) == 0 {
+			d.Children = &Defaults{Quotas: map[Resource]int64{"http": int64(f.rng.Intn(20))}}
+		}
+	}
+	sid := f.actor()
+	id, before := f.target(sid), f.audit.seq
+	_, err := f.e.SetDefaults(sid, id, d)
+	f.checkScope(sid, id, before, err)
+}
+
 // openSession opens a session scoped to the root or to a random node.
 func (f *fuzzer) openSession() {
 	scope := RootID
@@ -325,8 +363,12 @@ func (f *fuzzer) step() {
 		f.createNode()
 	case op < 12:
 		f.ensureNode()
-	case op < 37:
+	case op < 34:
 		f.consume()
+	case op < 36:
+		f.setQuota()
+	case op < 37:
+		f.setDefaults()
 	case op < 42:
 		f.openSession()
 	case op < 67:

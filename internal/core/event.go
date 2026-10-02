@@ -16,6 +16,9 @@ const (
 	EventLeaseGranted  EventKind = "lease_granted"
 	EventLeaseEnded    EventKind = "lease_ended"
 	EventLimitChanged  EventKind = "limit_changed"
+	EventQuotaChanged  EventKind = "quota_changed"
+
+	EventDefaultsChanged EventKind = "defaults_changed"
 )
 
 // LeaseEnd says how a lease ended.
@@ -56,13 +59,16 @@ type Event struct {
 	// Expires is when a session, or a lease with a maximum hold time, expires.
 	Expires time.Time `json:"expires,omitzero"`
 
-	// Resource and Amount are set on consumed.
+	// Resource and Amount are set on consumed, and on quota_changed, where Amount is the new cap.
 	Resource Resource `json:"resource,omitempty"`
 	Amount   int64    `json:"amount,omitempty"`
 
 	// Class is set on lease and limit events, and Limit on limit_changed.
 	Class Class `json:"class,omitempty"`
 	Limit int   `json:"limit,omitempty"`
+
+	// Defaults is set on defaults_changed; nil there means the node has none any more.
+	Defaults *Defaults `json:"defaults,omitempty"`
 
 	// End is set on lease_ended.
 	End LeaseEnd `json:"end,omitempty"`

@@ -40,6 +40,18 @@ func (s State) Terminal() bool {
 // DefaultWeight is the scheduling weight used when Spec.Weight is zero.
 const DefaultWeight = 1
 
+// Unlimited, given as a quota or a limit to set, removes the cap instead.
+const Unlimited = -1
+
+// Defaults is what a node gives each new child, whatever the child's own spec asks for.
+type Defaults struct {
+	// Quotas replace the child's caps for the resources named here.
+	Quotas map[Resource]int64 `json:"quotas,omitempty"`
+
+	// Children become the child's own defaults, for the nodes created under it.
+	Children *Defaults `json:"children,omitempty"`
+}
+
 // Spec describes a node to create; the zero Spec has no limits of its own.
 type Spec struct {
 	// Name is a label for denials and snapshots; it need not be unique.
@@ -59,6 +71,9 @@ type Spec struct {
 
 	// Priority orders queued acquires within a tenant; higher goes first.
 	Priority int `json:"priority,omitempty"`
+
+	// Defaults is what each new child of the node starts with; nil means nothing.
+	Defaults *Defaults `json:"defaults,omitempty"`
 }
 
 // Child describes one child of a node, as listed by Engine.Children.
@@ -66,6 +81,28 @@ type Child struct {
 	ID    NodeID
 	Name  string
 	State State
+}
+
+// NodeInfo describes one node as Engine.Describe reports it.
+type NodeInfo struct {
+	ID     NodeID
+	Parent NodeID
+	Name   string
+	State  State
+
+	// Deadline is the effective deadline, and EndedAt is zero while the node is active.
+	Deadline time.Time
+	EndedAt  time.Time
+
+	// Quotas and Limits are the node's own caps; Used and Held count its whole subtree.
+	Quotas map[Resource]int64
+	Used   map[Resource]int64
+	Limits map[Class]int
+	Held   map[Class]int
+
+	// Defaults is what each new child starts with, and Children how many children there are.
+	Defaults *Defaults
+	Children int
 }
 
 // AcquireOptions adjusts a single lease acquisition.

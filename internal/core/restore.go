@@ -105,7 +105,11 @@ func (e *Engine) apply(ev Event) error {
 		}
 		e.dropLease(l, ev.End, ev.Time)
 	case EventLimitChanged:
-		n.limits[ev.Class] = ev.Limit
+		n.applyLimit(ev.Class, ev.Limit)
+	case EventQuotaChanged:
+		n.setQuota(ev.Resource, ev.Amount)
+	case EventDefaultsChanged:
+		n.defaults = ev.Defaults.clone()
 	default:
 		return fmt.Errorf("unknown kind")
 	}

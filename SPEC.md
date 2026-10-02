@@ -125,6 +125,26 @@ then removed together with its subtree. What it consumed stays in the totals of
 its ancestors. A session confined to a removed node is ended. After the removal
 the node's id is unknown, and its name can be given to a new node.
 
+### 3.5 Changing caps and defaults
+
+Caps can be changed while a node is active.
+
+- `SetQuota(session, node, resource, cap)` and `SetLimit(session, node, class, cap)`
+  replace one cap, or remove it. Nothing already consumed or held is taken back:
+  a quota set below what is used only refuses further consumes, and a lowered
+  limit revokes no lease (§7).
+- A session may change every node in its scope **except the scope node itself**,
+  so it cannot loosen the caps it is held to. The root has nothing above it, so a
+  session scoped to the root may change the root too.
+- `SetDefaults(session, node, defaults)` sets what each **new child** of the node
+  starts with: a set of quotas, and optionally the defaults those children pass
+  on to their own children. Defaults replace the quotas they name in the child's
+  spec and leave the rest of the spec alone. Nodes that already exist are not
+  changed. A session may set defaults on its own scope, since they only shape
+  what is created beneath it.
+- `Describe(session, node)` reports a node and its children: state, caps, usage,
+  leases held and defaults.
+
 ## 4. Sessions and fencing
 
 A worker process opens a **session** with a TTL. Every lease belongs to one
@@ -145,8 +165,8 @@ operation carrying that id can succeed, and a larger id is always a later grant.
 ### 4.1 Scope
 
 A session is opened on one node, its **scope**, and may only act inside that
-node's subtree. `CreateNode`, `Consume`, `Acquire`, `Cancel`, `Close` and watching
-a node all take a session, and fail with `Forbidden` when the node they name is
+node's subtree. `CreateNode`, `Consume`, `Acquire`, `Cancel`, `Close`, the
+operations of §3.5 and watching a node all take a session, and fail with `Forbidden` when the node they name is
 outside its scope. A forbidden call changes nothing. The scope is fixed for the
 life of the session.
 
@@ -165,7 +185,10 @@ session ids never leave the server, so they cannot be guessed.
 These hold between any two operations. The tests check them after every step of
 randomized operation sequences.
 
-- **I1 Quota bound.** For every node and resource with a limit: `used ≤ limit`.
+- **I1 Quota bound.** No consume takes a node over a cap: after every granted
+  consume, `used ≤ limit` on its whole chain. Usage can only sit above a cap
+  because the cap was lowered afterwards (§3.5), and then every consume through
+  that node is denied.
 - **I2 Quota conservation.** `used(n) = self(n) + Σ used(children) + gone(n)`,
   where `gone` is the usage of children that have been removed. Usage never decreases.
 - **I3 Lease conservation.** `held(n, class) = leases held directly at n + Σ held(children, class)`.

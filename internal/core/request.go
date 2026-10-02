@@ -67,6 +67,8 @@ func (e *Engine) CreateNodeOnce(sid SessionID, request string, parent NodeID, sp
 	if p.depth >= MaxDepth {
 		return 0, 0, fmt.Errorf("%w: tree is deeper than %d", ErrInvalid, MaxDepth)
 	}
+	// The spec is recorded as inherited, so replaying it needs no defaults.
+	spec = p.inherit(spec)
 	n := e.addNode(NodeID(e.nextID()), p, spec)
 	e.emit(Event{Kind: EventNodeCreated, Node: n.id, Parent: p.id, Spec: &spec, Session: sid, Request: request})
 	did.result = uint64(n.id)
