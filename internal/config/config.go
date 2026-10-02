@@ -19,6 +19,7 @@ import (
 const (
 	DefaultListen       = "127.0.0.1:7600"
 	DefaultReapInterval = time.Second
+	DefaultDrainTimeout = 5 * time.Second
 
 	DefaultAdaptiveInterval = time.Second
 	DefaultAdaptiveSamples  = 20
@@ -35,6 +36,9 @@ type Config struct {
 
 	// ReapInterval is how often expired sessions, leases and deadlines are applied.
 	ReapInterval time.Duration `yaml:"reap_interval"`
+
+	// DrainTimeout is how long in-flight calls get to finish on shutdown.
+	DrainTimeout time.Duration `yaml:"drain_timeout"`
 
 	// AdminKey opens sessions scoped to the root; empty allows none.
 	AdminKey string `yaml:"admin_key"`
@@ -134,7 +138,7 @@ func Parse(data []byte) (*Config, error) {
 		return nil, fmt.Errorf("environment variables are not set: %v", missing)
 	}
 
-	cfg := &Config{Listen: DefaultListen, ReapInterval: DefaultReapInterval}
+	cfg := &Config{Listen: DefaultListen, ReapInterval: DefaultReapInterval, DrainTimeout: DefaultDrainTimeout}
 	dec := yaml.NewDecoder(bytes.NewReader([]byte(expanded)))
 	dec.KnownFields(true)
 	// An empty file is a valid configuration made of defaults.
@@ -152,8 +156,8 @@ func (c *Config) validate() error {
 	if c.Listen == "" {
 		return errors.New("listen is empty")
 	}
-	if c.ReapInterval <= 0 {
-		return errors.New("reap_interval must be positive")
+	if c.ReapInterval <= 0 || c.DrainTimeout <= 0 {
+		return errors.New("reap_interval and drain_timeout must be positive")
 	}
 	if err := c.Root.validate(); err != nil {
 		return fmt.Errorf("root: %w", err)
