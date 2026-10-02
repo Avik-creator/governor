@@ -84,6 +84,9 @@ governor_root_quota_used_total{resource="http"} 10
 # HELP governor_sessions Open sessions.
 # TYPE governor_sessions gauge
 governor_sessions 1
+# HELP governor_waiting_acquires Acquires queued for a lease, by class.
+# TYPE governor_waiting_acquires gauge
+governor_waiting_acquires{class="db"} 0
 # HELP governor_tenant_lease_limit A tenant's cap on a class.
 # TYPE governor_tenant_lease_limit gauge
 governor_tenant_lease_limit{class="db",tenant="b"} 1
@@ -109,8 +112,8 @@ governor_tenant_quota_used_total{resource="http",tenant="b"} 7
 		t.Error(err)
 	}
 	// Nothing in the output may name a task, or the series would grow with the work.
-	if n, err := testutil.GatherAndCount(m.registry, names...); err != nil || n != 11 {
-		t.Errorf("gathered %d series (%v), want 11", n, err)
+	if n, err := testutil.GatherAndCount(m.registry, names...); err != nil || n != 12 {
+		t.Errorf("gathered %d series (%v), want 12", n, err)
 	}
 }
 

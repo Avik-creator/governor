@@ -63,6 +63,12 @@ func (c collector) Collect(ch chan<- prometheus.Metric) {
 
 	gauge(nodesDesc, float64(s.Nodes))
 	gauge(sessionsDesc, float64(s.Sessions))
+	// A pool with nobody waiting reports zero, so its graph has no gaps.
+	for class := range s.Root.Limits {
+		if _, ok := s.Waiting[class]; !ok {
+			gauge(waitingDesc, 0, string(class))
+		}
+	}
 	for class, n := range s.Waiting {
 		gauge(waitingDesc, float64(n), string(class))
 	}
