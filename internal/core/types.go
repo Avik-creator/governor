@@ -43,22 +43,22 @@ const DefaultWeight = 1
 // Spec describes a node to create; the zero Spec has no limits of its own.
 type Spec struct {
 	// Name is a label for denials and snapshots; it need not be unique.
-	Name string
+	Name string `json:"name,omitempty"`
 
 	// Quotas caps total consumption per resource; absent means uncapped here.
-	Quotas map[Resource]int64
+	Quotas map[Resource]int64 `json:"quotas,omitempty"`
 
 	// Limits caps leases held at once per class; absent means uncapped here.
-	Limits map[Class]int
+	Limits map[Class]int `json:"limits,omitempty"`
 
 	// Deadline is when the node ends; the zero time means none of its own.
-	Deadline time.Time
+	Deadline time.Time `json:"deadline,omitzero"`
 
 	// Weight is a tenant's share when competing for a class; zero means 1.
-	Weight int
+	Weight int `json:"weight,omitempty"`
 
 	// Priority orders queued acquires within a tenant; higher goes first.
-	Priority int
+	Priority int `json:"priority,omitempty"`
 }
 
 // AcquireOptions adjusts a single lease acquisition.
