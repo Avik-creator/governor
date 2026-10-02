@@ -26,6 +26,7 @@ The exact semantics are in [SPEC.md](SPEC.md), which is the contract the tests c
 [Using the SDK](#using-the-sdk) ·
 [Governing Claude Code and Codex](#governing-claude-code-and-codex) ·
 [Watching and changing budgets](#watching-and-changing-budgets) ·
+[Metrics](#metrics) ·
 [Benchmark](#benchmark) ·
 [What is guaranteed](#what-is-guaranteed) ·
 [Design decisions](#design-decisions) ·
@@ -291,6 +292,51 @@ tenant's key can change everything under the tenant but not the tenant's own cap
 the admin key can change those too. Defaults set here take the place of the ones
 in `governor.yaml`, which only seed a tenant that has none on record.
 
+## Metrics
+
+With `metrics_listen` set, `governord` serves Prometheus metrics over HTTP. The
+example configuration puts them on port 7601:
+
+```sh
+curl -s localhost:7601/metrics | grep '^governor_'
+```
+
+| Metric | Labels | What it tells you |
+| --- | --- | --- |
+| `governor_grpc_requests_total` | `method`, `code` | Calls and how they ended. A refused consume is `code="ResourceExhausted"`. |
+| `governor_grpc_request_duration_seconds` | `method` | How long calls took. For `Acquire` this includes the time queued. |
+| `governor_events_total` | `kind` | Changes made to the tree: charges, grants, expiries, cancellations. |
+| `governor_waiting_acquires` | `class` | Queue depth for each pool. |
+| `governor_root_leases_held`, `governor_root_lease_limit` | `class` | How full each shared pool is. The limit moves when it is adaptive. |
+| `governor_root_quota_used_total`, `governor_root_quota_limit` | `resource` | Consumption in the whole tree against the root's cap. |
+| `governor_tenant_quota_used_total`, `governor_tenant_quota_limit` | `tenant`, `resource` | What each tenant has spent against its cap. |
+| `governor_tenant_leases_held`, `governor_tenant_lease_limit` | `tenant`, `class` | What each tenant holds against its cap. |
+| `governor_commit_duration_seconds`, `governor_commit_batch_events` | | How long the database takes, and how many callers share one commit. |
+| `governor_nodes`, `governor_sessions` | | The size of the tree and the number of connected workers. |
+
+Go runtime and process metrics are served too. A few queries that answer the
+usual questions:
+
+```promql
+# How full is the db pool?
+governor_root_leases_held{class="db"} / governor_root_lease_limit{class="db"}
+
+# How often are calls refused for lack of budget?
+sum by (method) (rate(governor_grpc_requests_total{code="ResourceExhausted"}[5m]))
+
+# How fast is each tenant spending its HTTP budget?
+rate(governor_tenant_quota_used_total{resource="http"}[5m])
+
+# How long do workers wait for a lease, at the 95th percentile?
+histogram_quantile(0.95, sum by (le) (rate(governor_grpc_request_duration_seconds_bucket{method="Acquire"}[5m])))
+```
+
+Labels are tenants, classes and resources only, never a task, so the number of
+series grows with the configuration and not with the work. The tree is read once
+per scrape, under the engine's lock, and only the root and the tenants are read.
+The endpoint has no authentication: it shows tenants' names and usage, so bind it
+to a private address.
+
 ## Benchmark
 
 `govbench` runs the same workload with and without Governor against a simulated
@@ -471,6 +517,7 @@ the shape it would take. It is not built.
 | `internal/tui` | The terminal screen of `governor ui` (Bubble Tea) |
 | `internal/core` | The in-memory engine: tree, quotas, leases, fair queue, restore |
 | `internal/server` | The gRPC service: authentication, error mapping, idempotent requests |
+| `internal/metrics` | The Prometheus metrics: calls, events, commits and the state of the tree |
 | `internal/adaptive` | The controller that tunes a limit from reported latency and overload |
 | `internal/store` | Postgres or SQLite: events with group commit, snapshots, session token hashes (goose, goqu) |
 | `internal/config` | The YAML configuration |
@@ -501,19 +548,19 @@ Measured on an Apple M1 with `go test -bench . ./internal/core`:
 ## Status
 
 Built and tested: the engine, the gRPC service, the Postgres and SQLite store with
-snapshots and restart, `governord` with adaptive concurrency, the SDK, the hook for
-Claude Code and Codex, the terminal screen, and the benchmark.
+snapshots and restart, `governord` with adaptive concurrency and Prometheus metrics,
+the SDK, the hook for Claude Code and Codex, the terminal screen, and the benchmark.
 
 Known limits:
 
 - one `governord` is the authority; there is no replication;
 - traffic is not encrypted, and API keys are kept in the configuration file;
-- there are no metrics or traces, only logs;
+- there are metrics and logs, but no traces;
 - hooks budget tool calls and subagents, but cannot limit how many run at once;
 - request ids sent directly with an API key, as hooks do, are not kept across a restart.
 
-What would come next, in this order: TLS and metrics, so that one `governord` can
-be run for real; then replication through a consensus log, tested with a
+What would come next, in this order: TLS, so that one `governord` can be run
+across a network; then replication through a consensus log, tested with a
 linearizability checker under injected faults. Governor is meant to stay a
 resource governor for fan-out workloads; the agent CLI hook is one use of it, not
 its direction.
