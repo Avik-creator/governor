@@ -46,7 +46,7 @@ func mustNode(t *testing.T, e *Engine, sid SessionID, parent NodeID, spec Spec) 
 
 func mustSession(t *testing.T, e *Engine, scope NodeID, ttl time.Duration) SessionID {
 	t.Helper()
-	sid, _, err := e.OpenSession(scope, ttl)
+	sid, _, _, err := e.OpenSession(scope, ttl)
 	if err != nil {
 		t.Fatalf("OpenSession: %v", err)
 	}
@@ -191,20 +191,22 @@ func TestConsumeRejects(t *testing.T) {
 		name   string
 		sid    SessionID
 		id     NodeID
+		r      Resource
 		amount int64
 		want   error
 	}{
-		{"zero amount", admin, node, 0, ErrInvalid},
-		{"negative amount", admin, node, -1, ErrInvalid},
-		{"unknown node", admin, 9999, 1, ErrUnknownNode},
-		{"ended node", admin, ended, 1, ErrClosed},
-		{"no session", 0, node, 1, ErrSessionExpired},
-		{"unknown session", 9999, node, 1, ErrSessionExpired},
-		{"limit of zero", admin, node, 1, ErrDenied},
+		{"empty resource", admin, node, "", 1, ErrInvalid},
+		{"zero amount", admin, node, "sql", 0, ErrInvalid},
+		{"negative amount", admin, node, "sql", -1, ErrInvalid},
+		{"unknown node", admin, 9999, "sql", 1, ErrUnknownNode},
+		{"ended node", admin, ended, "sql", 1, ErrClosed},
+		{"no session", 0, node, "sql", 1, ErrSessionExpired},
+		{"unknown session", 9999, node, "sql", 1, ErrSessionExpired},
+		{"limit of zero", admin, node, "sql", 1, ErrDenied},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, err := e.Consume(tc.sid, tc.id, "sql", tc.amount); !errors.Is(err, tc.want) {
+			if _, err := e.Consume(tc.sid, tc.id, tc.r, tc.amount); !errors.Is(err, tc.want) {
 				t.Errorf("Consume = %v, want %v", err, tc.want)
 			}
 		})
@@ -467,6 +469,59 @@ func TestSessionScope(t *testing.T) {
 	}
 }
 
+func TestOpenSessionReturnsExpiry(t *testing.T) {
+	e, _, clock := newEngine(t, Spec{})
+	_, expires, _, err := e.OpenSession(RootID, time.Minute)
+	if err != nil {
+		t.Fatalf("OpenSession: %v", err)
+	}
+	if want := clock.Now().Add(time.Minute); !expires.Equal(want) {
+		t.Errorf("expires = %v, want %v", expires, want)
+	}
+	if _, expires, _, _ := e.OpenSession(RootID, 0); !expires.IsZero() {
+		t.Errorf("expires = %v for a session without a ttl, want zero", expires)
+	}
+}
+
+func TestSessionDone(t *testing.T) {
+	e, _, clock := newEngine(t, Spec{})
+	closed := mustSession(t, e, RootID, 0)
+	expired := mustSession(t, e, RootID, 10*time.Second)
+	live := mustSession(t, e, RootID, time.Minute)
+	isDone := func(sid SessionID) bool {
+		select {
+		case <-e.SessionDone(sid):
+			return true
+		default:
+			return false
+		}
+	}
+	for _, sid := range []SessionID{closed, expired, live} {
+		if isDone(sid) {
+			t.Fatalf("SessionDone(%d) is closed for a live session", sid)
+		}
+	}
+	// A watcher that asked before the session ended must be woken too.
+	early := e.SessionDone(expired)
+
+	if _, err := e.CloseSession(closed); err != nil {
+		t.Fatalf("CloseSession: %v", err)
+	}
+	clock.Advance(10 * time.Second)
+	e.Reap()
+	select {
+	case <-early:
+	default:
+		t.Error("SessionDone is still open after the session expired")
+	}
+	if !isDone(closed) || !isDone(expired) || !isDone(9999) {
+		t.Error("SessionDone is open for a closed, expired or unknown session")
+	}
+	if isDone(live) {
+		t.Error("SessionDone is closed for a session that is still live")
+	}
+}
+
 func TestOpenSessionRejects(t *testing.T) {
 	e, admin, _ := newEngine(t, Spec{})
 	ended := mustNode(t, e, admin, RootID, Spec{})
@@ -485,7 +540,7 @@ func TestOpenSessionRejects(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, _, err := e.OpenSession(tc.scope, tc.ttl); !errors.Is(err, tc.want) {
+			if _, _, _, err := e.OpenSession(tc.scope, tc.ttl); !errors.Is(err, tc.want) {
 				t.Errorf("OpenSession = %v, want %v", err, tc.want)
 			}
 		})
@@ -540,7 +595,7 @@ func TestRelease(t *testing.T) {
 		{
 			name: "held by another session",
 			arrange: func(e *Engine, _ *ManualClock, _ NodeID, _ SessionID, _ LeaseID) SessionID {
-				sid, _, _ := e.OpenSession(RootID, ttl)
+				sid, _, _, _ := e.OpenSession(RootID, ttl)
 				return sid
 			},
 			want: ErrNotOwner,
@@ -572,7 +627,7 @@ func TestRelease(t *testing.T) {
 			name: "forgotten after retention",
 			arrange: func(e *Engine, clock *ManualClock, _ NodeID, owner SessionID, l LeaseID) SessionID {
 				e.Release(owner, l, Report{})
-				sid, _, _ := e.OpenSession(RootID, 0)
+				sid, _, _, _ := e.OpenSession(RootID, 0)
 				clock.Advance(2 * time.Minute)
 				e.Reap()
 				return sid
@@ -903,7 +958,7 @@ func TestEventsCarryIncreasingSeq(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	sid, seqSession, err := e.OpenSession(RootID, time.Minute)
+	sid, _, seqSession, err := e.OpenSession(RootID, time.Minute)
 	if err != nil {
 		t.Fatalf("OpenSession: %v", err)
 	}

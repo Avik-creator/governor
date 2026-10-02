@@ -287,7 +287,7 @@ func (f *fuzzer) openSession() {
 		scope = f.node()
 	}
 	ttl := time.Duration(f.rng.Intn(4)) * 5 * time.Second
-	if sid, _, err := f.e.OpenSession(scope, ttl); err == nil {
+	if sid, _, _, err := f.e.OpenSession(scope, ttl); err == nil {
 		f.sessions = append(f.sessions, sid)
 		f.scope[sid] = scope
 	}
@@ -545,7 +545,7 @@ func benchEngine(b *testing.B) (*Engine, NodeID) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b.Cleanup(cancel)
 	go e.Run(ctx, 10*time.Millisecond)
-	admin, _, _ := e.OpenSession(RootID, 0)
+	admin, _, _, _ := e.OpenSession(RootID, 0)
 	tenant, _, _ := e.CreateNode(admin, RootID, Spec{Quotas: map[Resource]int64{"http": 1 << 61}})
 	task, _, _ := e.CreateNode(admin, tenant, Spec{})
 	return e, task
@@ -554,7 +554,7 @@ func benchEngine(b *testing.B) (*Engine, NodeID) {
 func BenchmarkConsume(b *testing.B) {
 	e, task := benchEngine(b)
 	b.RunParallel(func(pb *testing.PB) {
-		sid, _, _ := e.OpenSession(task, 0)
+		sid, _, _, _ := e.OpenSession(task, 0)
 		sub, _, _ := e.CreateNode(sid, task, Spec{})
 		for pb.Next() {
 			if _, err := e.Consume(sid, sub, "http", 1); err != nil {
@@ -578,7 +578,7 @@ func BenchmarkAcquireRelease(b *testing.B) {
 			e, task := benchEngine(b)
 			ctx := context.Background()
 			b.RunParallel(func(pb *testing.PB) {
-				sid, _, _ := e.OpenSession(task, 0)
+				sid, _, _, _ := e.OpenSession(task, 0)
 				sub, _, _ := e.CreateNode(sid, task, Spec{})
 				for pb.Next() {
 					l, _, err := e.Acquire(ctx, sid, sub, tc.class, AcquireOptions{})
