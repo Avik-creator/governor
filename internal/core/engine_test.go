@@ -24,28 +24,29 @@ type grant struct {
 	err   error
 }
 
-func newEngine(t *testing.T, root Spec) (*Engine, *ManualClock) {
+// newEngine returns an engine and a session that may act anywhere in its tree.
+func newEngine(t *testing.T, root Spec) (*Engine, SessionID, *ManualClock) {
 	t.Helper()
 	clock := NewManualClock(time.Unix(1_700_000_000, 0))
 	e, err := New(Config{Clock: clock, Root: root})
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	return e, clock
+	return e, mustSession(t, e, RootID, 0), clock
 }
 
-func mustNode(t *testing.T, e *Engine, parent NodeID, spec Spec) NodeID {
+func mustNode(t *testing.T, e *Engine, sid SessionID, parent NodeID, spec Spec) NodeID {
 	t.Helper()
-	id, _, err := e.CreateNode(parent, spec)
+	id, _, err := e.CreateNode(sid, parent, spec)
 	if err != nil {
 		t.Fatalf("CreateNode: %v", err)
 	}
 	return id
 }
 
-func mustSession(t *testing.T, e *Engine, ttl time.Duration) SessionID {
+func mustSession(t *testing.T, e *Engine, scope NodeID, ttl time.Duration) SessionID {
 	t.Helper()
-	sid, _, err := e.OpenSession(ttl)
+	sid, _, err := e.OpenSession(scope, ttl)
 	if err != nil {
 		t.Fatalf("OpenSession: %v", err)
 	}
@@ -132,20 +133,20 @@ func acquireAsync(t *testing.T, e *Engine, ctx context.Context, sid SessionID, i
 }
 
 func TestConsumeDrawsFromAncestors(t *testing.T) {
-	e, _ := newEngine(t, Spec{Quotas: map[Resource]int64{"http": 1000}})
-	tenant := mustNode(t, e, RootID, Spec{Name: "tenant-a", Quotas: map[Resource]int64{"http": 100}})
-	task := mustNode(t, e, tenant, Spec{Name: "task"})
-	sub := mustNode(t, e, task, Spec{Name: "subtask", Quotas: map[Resource]int64{"http": 30}})
-	crawler := mustNode(t, e, tenant, Spec{Name: "crawler"})
+	e, admin, _ := newEngine(t, Spec{Quotas: map[Resource]int64{"http": 1000}})
+	tenant := mustNode(t, e, admin, RootID, Spec{Name: "tenant-a", Quotas: map[Resource]int64{"http": 100}})
+	task := mustNode(t, e, admin, tenant, Spec{Name: "task"})
+	sub := mustNode(t, e, admin, task, Spec{Name: "subtask", Quotas: map[Resource]int64{"http": 30}})
+	crawler := mustNode(t, e, admin, tenant, Spec{Name: "crawler"})
 
-	if _, err := e.Consume(0, crawler, "http", 80); err != nil {
+	if _, err := e.Consume(admin, crawler, "http", 80); err != nil {
 		t.Fatalf("Consume(crawler, 80): %v", err)
 	}
-	if _, err := e.Consume(0, sub, "http", 18); err != nil {
+	if _, err := e.Consume(admin, sub, "http", 18); err != nil {
 		t.Fatalf("Consume(sub, 18): %v", err)
 	}
 
-	_, err := e.Consume(0, sub, "http", 5)
+	_, err := e.Consume(admin, sub, "http", 5)
 	if !errors.Is(err, ErrDenied) {
 		t.Fatalf("Consume(sub, 5) = %v, want ErrDenied", err)
 	}
@@ -173,16 +174,16 @@ func TestConsumeDrawsFromAncestors(t *testing.T) {
 	}
 
 	// The tenant has room for 2, so the subtask's own cap of 30 is not the limit.
-	if _, err := e.Consume(0, sub, "http", 2); err != nil {
+	if _, err := e.Consume(admin, sub, "http", 2); err != nil {
 		t.Errorf("Consume(sub, 2): %v", err)
 	}
 }
 
 func TestConsumeRejects(t *testing.T) {
-	e, _ := newEngine(t, Spec{})
-	node := mustNode(t, e, RootID, Spec{Quotas: map[Resource]int64{"sql": 0}})
-	ended := mustNode(t, e, RootID, Spec{})
-	if _, err := e.Cancel(ended); err != nil {
+	e, admin, _ := newEngine(t, Spec{})
+	node := mustNode(t, e, admin, RootID, Spec{Quotas: map[Resource]int64{"sql": 0}})
+	ended := mustNode(t, e, admin, RootID, Spec{})
+	if _, err := e.Cancel(admin, ended); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 
@@ -193,12 +194,13 @@ func TestConsumeRejects(t *testing.T) {
 		amount int64
 		want   error
 	}{
-		{"zero amount", 0, node, 0, ErrInvalid},
-		{"negative amount", 0, node, -1, ErrInvalid},
-		{"unknown node", 0, 9999, 1, ErrUnknownNode},
-		{"ended node", 0, ended, 1, ErrClosed},
+		{"zero amount", admin, node, 0, ErrInvalid},
+		{"negative amount", admin, node, -1, ErrInvalid},
+		{"unknown node", admin, 9999, 1, ErrUnknownNode},
+		{"ended node", admin, ended, 1, ErrClosed},
+		{"no session", 0, node, 1, ErrSessionExpired},
 		{"unknown session", 9999, node, 1, ErrSessionExpired},
-		{"limit of zero", 0, node, 1, ErrDenied},
+		{"limit of zero", admin, node, 1, ErrDenied},
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
@@ -222,8 +224,8 @@ func TestConsumeConcurrent(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			e, _ := newEngine(t, Spec{})
-			tenant := mustNode(t, e, RootID, Spec{Quotas: map[Resource]int64{"http": 100}})
+			e, admin, _ := newEngine(t, Spec{})
+			tenant := mustNode(t, e, admin, RootID, Spec{Quotas: map[Resource]int64{"http": 100}})
 			var (
 				wg sync.WaitGroup
 				mu sync.Mutex
@@ -231,12 +233,12 @@ func TestConsumeConcurrent(t *testing.T) {
 			)
 			for range tc.workers {
 				wg.Go(func() {
-					task, _, err := e.CreateNode(tenant, Spec{})
+					task, _, err := e.CreateNode(admin, tenant, Spec{})
 					if err != nil {
 						t.Errorf("CreateNode: %v", err)
 						return
 					}
-					if _, err := e.Consume(0, task, "http", tc.amount); err == nil {
+					if _, err := e.Consume(admin, task, "http", tc.amount); err == nil {
 						mu.Lock()
 						ok++
 						mu.Unlock()
@@ -257,7 +259,7 @@ func TestConsumeConcurrent(t *testing.T) {
 func TestEndNode(t *testing.T) {
 	tests := []struct {
 		name      string
-		end       func(*Engine, NodeID) (uint64, error)
+		end       func(*Engine, SessionID, NodeID) (uint64, error)
 		wantState State
 	}{
 		{"cancel", (*Engine).Cancel, StateCancelled},
@@ -265,14 +267,17 @@ func TestEndNode(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			e, _ := newEngine(t, Spec{})
-			tenant := mustNode(t, e, RootID, Spec{})
-			task := mustNode(t, e, tenant, Spec{})
-			sub := mustNode(t, e, task, Spec{})
-			sibling := mustNode(t, e, tenant, Spec{})
-			done := e.Done(sub)
+			e, admin, _ := newEngine(t, Spec{})
+			tenant := mustNode(t, e, admin, RootID, Spec{})
+			task := mustNode(t, e, admin, tenant, Spec{})
+			sub := mustNode(t, e, admin, task, Spec{})
+			sibling := mustNode(t, e, admin, tenant, Spec{})
+			done, err := e.Done(admin, sub)
+			if err != nil {
+				t.Fatalf("Done: %v", err)
+			}
 
-			if _, err := tc.end(e, task); err != nil {
+			if _, err := tc.end(e, admin, task); err != nil {
 				t.Fatalf("end: %v", err)
 			}
 			mustState(t, e, task, tc.wantState)
@@ -286,15 +291,15 @@ func TestEndNode(t *testing.T) {
 			}
 
 			// Ending again is a no-op and does not change the state.
-			if _, err := e.Cancel(task); err != nil {
+			if _, err := e.Cancel(admin, task); err != nil {
 				t.Errorf("second end: %v", err)
 			}
 			mustState(t, e, task, tc.wantState)
 
-			if _, err := e.Consume(0, sub, "http", 1); !errors.Is(err, ErrClosed) {
+			if _, err := e.Consume(admin, sub, "http", 1); !errors.Is(err, ErrClosed) {
 				t.Errorf("Consume on ended node = %v, want ErrClosed", err)
 			}
-			if _, _, err := e.CreateNode(task, Spec{}); !errors.Is(err, ErrClosed) {
+			if _, _, err := e.CreateNode(admin, task, Spec{}); !errors.Is(err, ErrClosed) {
 				t.Errorf("CreateNode under ended node = %v, want ErrClosed", err)
 			}
 		})
@@ -302,17 +307,17 @@ func TestEndNode(t *testing.T) {
 }
 
 func TestEndNodeRejects(t *testing.T) {
-	e, _ := newEngine(t, Spec{})
-	if _, err := e.Cancel(RootID); !errors.Is(err, ErrInvalid) {
+	e, admin, _ := newEngine(t, Spec{})
+	if _, err := e.Cancel(admin, RootID); !errors.Is(err, ErrInvalid) {
 		t.Errorf("Cancel(root) = %v, want ErrInvalid", err)
 	}
-	if _, err := e.Close(9999); !errors.Is(err, ErrUnknownNode) {
+	if _, err := e.Close(admin, 9999); !errors.Is(err, ErrUnknownNode) {
 		t.Errorf("Close(unknown) = %v, want ErrUnknownNode", err)
 	}
 }
 
 func TestCreateNodeRejects(t *testing.T) {
-	e, _ := newEngine(t, Spec{})
+	e, admin, _ := newEngine(t, Spec{})
 	tests := []struct {
 		name string
 		spec Spec
@@ -325,7 +330,7 @@ func TestCreateNodeRejects(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			if _, _, err := e.CreateNode(RootID, tc.spec); !errors.Is(err, ErrInvalid) {
+			if _, _, err := e.CreateNode(admin, RootID, tc.spec); !errors.Is(err, ErrInvalid) {
 				t.Errorf("CreateNode = %v, want ErrInvalid", err)
 			}
 		})
@@ -334,31 +339,31 @@ func TestCreateNodeRejects(t *testing.T) {
 	t.Run("deeper than MaxDepth", func(t *testing.T) {
 		id := RootID
 		for range MaxDepth {
-			id = mustNode(t, e, id, Spec{})
+			id = mustNode(t, e, admin, id, Spec{})
 		}
-		if _, _, err := e.CreateNode(id, Spec{}); !errors.Is(err, ErrInvalid) {
+		if _, _, err := e.CreateNode(admin, id, Spec{}); !errors.Is(err, ErrInvalid) {
 			t.Errorf("CreateNode = %v, want ErrInvalid", err)
 		}
 	})
 }
 
 func TestSpecIsCopied(t *testing.T) {
-	e, _ := newEngine(t, Spec{})
+	e, admin, _ := newEngine(t, Spec{})
 	quotas := map[Resource]int64{"http": 1}
-	node := mustNode(t, e, RootID, Spec{Quotas: quotas})
+	node := mustNode(t, e, admin, RootID, Spec{Quotas: quotas})
 	quotas["http"] = 1000
-	if _, err := e.Consume(0, node, "http", 2); !errors.Is(err, ErrDenied) {
+	if _, err := e.Consume(admin, node, "http", 2); !errors.Is(err, ErrDenied) {
 		t.Errorf("Consume = %v, want ErrDenied", err)
 	}
 }
 
 func TestDeadlineIsInherited(t *testing.T) {
-	e, clock := newEngine(t, Spec{})
+	e, admin, clock := newEngine(t, Spec{})
 	now := clock.Now()
-	parent := mustNode(t, e, RootID, Spec{Deadline: now.Add(10 * time.Second)})
-	later := mustNode(t, e, parent, Spec{Deadline: now.Add(time.Hour)})
-	sooner := mustNode(t, e, parent, Spec{Deadline: now.Add(5 * time.Second)})
-	none := mustNode(t, e, parent, Spec{})
+	parent := mustNode(t, e, admin, RootID, Spec{Deadline: now.Add(10 * time.Second)})
+	later := mustNode(t, e, admin, parent, Spec{Deadline: now.Add(time.Hour)})
+	sooner := mustNode(t, e, admin, parent, Spec{Deadline: now.Add(5 * time.Second)})
+	none := mustNode(t, e, admin, parent, Spec{})
 
 	clock.Advance(5 * time.Second)
 	mustState(t, e, sooner, StateDeadlineExceeded)
@@ -367,7 +372,7 @@ func TestDeadlineIsInherited(t *testing.T) {
 
 	// Touching a child after the parent's deadline ends the parent, not the child.
 	clock.Advance(5 * time.Second)
-	if _, err := e.Consume(0, later, "http", 1); !errors.Is(err, ErrClosed) {
+	if _, err := e.Consume(admin, later, "http", 1); !errors.Is(err, ErrClosed) {
 		t.Errorf("Consume after deadline = %v, want ErrClosed", err)
 	}
 	mustState(t, e, parent, StateDeadlineExceeded)
@@ -377,9 +382,12 @@ func TestDeadlineIsInherited(t *testing.T) {
 }
 
 func TestReapAppliesDeadlines(t *testing.T) {
-	e, clock := newEngine(t, Spec{})
-	node := mustNode(t, e, RootID, Spec{Deadline: clock.Now().Add(time.Second)})
-	done := e.Done(node)
+	e, admin, clock := newEngine(t, Spec{})
+	node := mustNode(t, e, admin, RootID, Spec{Deadline: clock.Now().Add(time.Second)})
+	done, err := e.Done(admin, node)
+	if err != nil {
+		t.Fatalf("Done: %v", err)
+	}
 	clock.Advance(time.Second)
 	e.Reap()
 	select {
@@ -396,12 +404,100 @@ func TestNewRejectsRootDeadline(t *testing.T) {
 	}
 }
 
+func TestSessionScope(t *testing.T) {
+	e, admin, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 4}})
+	a := mustNode(t, e, admin, RootID, Spec{Name: "tenant-a"})
+	b := mustNode(t, e, admin, RootID, Spec{Name: "tenant-b"})
+	taskB := mustNode(t, e, admin, b, Spec{})
+	sid := mustSession(t, e, a, 0)
+	ctx := context.Background()
+
+	// Inside its scope the session can create, spend, hold and end.
+	taskA, _, err := e.CreateNode(sid, a, Spec{})
+	if err != nil {
+		t.Fatalf("CreateNode in scope: %v", err)
+	}
+	if _, err := e.Consume(sid, taskA, "http", 1); err != nil {
+		t.Errorf("Consume in scope: %v", err)
+	}
+	if _, _, err := e.Acquire(ctx, sid, taskA, "db", AcquireOptions{}); err != nil {
+		t.Errorf("Acquire in scope: %v", err)
+	}
+	if _, err := e.Done(sid, a); err != nil {
+		t.Errorf("Done in scope: %v", err)
+	}
+
+	calls := []struct {
+		name string
+		call func(NodeID) error
+	}{
+		{"CreateNode", func(id NodeID) error { _, _, err := e.CreateNode(sid, id, Spec{}); return err }},
+		{"Consume", func(id NodeID) error { _, err := e.Consume(sid, id, "http", 1); return err }},
+		{"Acquire", func(id NodeID) error { _, _, err := e.Acquire(ctx, sid, id, "db", AcquireOptions{}); return err }},
+		{"Cancel", func(id NodeID) error { _, err := e.Cancel(sid, id); return err }},
+		{"Close", func(id NodeID) error { _, err := e.Close(sid, id); return err }},
+		{"Done", func(id NodeID) error { _, err := e.Done(sid, id); return err }},
+	}
+	e.mu.Lock()
+	before := e.seq
+	e.mu.Unlock()
+	for _, tc := range calls {
+		// Another tenant, a task of another tenant, and the session's own ancestor.
+		for _, id := range []NodeID{b, taskB, RootID} {
+			if err := tc.call(id); !errors.Is(err, ErrForbidden) {
+				t.Errorf("%s(node %d) = %v, want ErrForbidden", tc.name, id, err)
+			}
+		}
+	}
+
+	// Forbidden calls change nothing: no usage, no lease, no ended node, no event.
+	if got := used(e, b, "http"); got != 0 {
+		t.Errorf("used(b) = %d, want 0", got)
+	}
+	if got := held(e, RootID, "db"); got != 1 {
+		t.Errorf("held(root) = %d, want 1", got)
+	}
+	mustState(t, e, b, StateActive)
+	mustState(t, e, taskB, StateActive)
+	e.mu.Lock()
+	after := e.seq
+	e.mu.Unlock()
+	if after != before {
+		t.Errorf("forbidden calls emitted %d events, want 0", after-before)
+	}
+}
+
+func TestOpenSessionRejects(t *testing.T) {
+	e, admin, _ := newEngine(t, Spec{})
+	ended := mustNode(t, e, admin, RootID, Spec{})
+	if _, err := e.Cancel(admin, ended); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	tests := []struct {
+		name  string
+		scope NodeID
+		ttl   time.Duration
+		want  error
+	}{
+		{"negative ttl", RootID, -time.Second, ErrInvalid},
+		{"unknown scope", 9999, 0, ErrUnknownNode},
+		{"ended scope", ended, 0, ErrClosed},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, err := e.OpenSession(tc.scope, tc.ttl); !errors.Is(err, tc.want) {
+				t.Errorf("OpenSession = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestAcquireHonoursWholeChain(t *testing.T) {
-	e, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 20}})
-	tenant := mustNode(t, e, RootID, Spec{Limits: map[Class]int{"db": 10}})
-	task := mustNode(t, e, tenant, Spec{})
-	other := mustNode(t, e, RootID, Spec{})
-	sid := mustSession(t, e, 0)
+	e, admin, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 20}})
+	tenant := mustNode(t, e, admin, RootID, Spec{Limits: map[Class]int{"db": 10}})
+	task := mustNode(t, e, admin, tenant, Spec{})
+	other := mustNode(t, e, admin, RootID, Spec{})
+	sid := mustSession(t, e, RootID, 0)
 
 	var leases []LeaseID
 	for range 10 {
@@ -444,7 +540,7 @@ func TestRelease(t *testing.T) {
 		{
 			name: "held by another session",
 			arrange: func(e *Engine, _ *ManualClock, _ NodeID, _ SessionID, _ LeaseID) SessionID {
-				sid, _, _ := e.OpenSession(ttl)
+				sid, _, _ := e.OpenSession(RootID, ttl)
 				return sid
 			},
 			want: ErrNotOwner,
@@ -467,7 +563,7 @@ func TestRelease(t *testing.T) {
 		{
 			name: "node cancelled",
 			arrange: func(e *Engine, _ *ManualClock, node NodeID, owner SessionID, _ LeaseID) SessionID {
-				e.Cancel(node)
+				e.Cancel(owner, node)
 				return owner
 			},
 			want: ErrLeaseRevoked,
@@ -476,7 +572,7 @@ func TestRelease(t *testing.T) {
 			name: "forgotten after retention",
 			arrange: func(e *Engine, clock *ManualClock, _ NodeID, owner SessionID, l LeaseID) SessionID {
 				e.Release(owner, l, Report{})
-				sid, _, _ := e.OpenSession(0)
+				sid, _, _ := e.OpenSession(RootID, 0)
 				clock.Advance(2 * time.Minute)
 				e.Reap()
 				return sid
@@ -486,9 +582,9 @@ func TestRelease(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			e, clock := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
-			node := mustNode(t, e, RootID, Spec{})
-			owner := mustSession(t, e, ttl)
+			e, admin, clock := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
+			node := mustNode(t, e, admin, RootID, Spec{})
+			owner := mustSession(t, e, RootID, ttl)
 			l := mustAcquire(t, e, owner, node, "db")
 
 			sid := tc.arrange(e, clock, node, owner, l)
@@ -504,8 +600,8 @@ func TestRelease(t *testing.T) {
 	}
 
 	t.Run("never issued", func(t *testing.T) {
-		e, _ := newEngine(t, Spec{})
-		sid := mustSession(t, e, ttl)
+		e, _, _ := newEngine(t, Spec{})
+		sid := mustSession(t, e, RootID, ttl)
 		if _, err := e.Release(sid, 9999, Report{}); !errors.Is(err, ErrUnknownLease) {
 			t.Errorf("Release = %v, want ErrUnknownLease", err)
 		}
@@ -518,7 +614,7 @@ func TestReleaseReportsToObserver(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	sid := mustSession(t, e, 0)
+	sid := mustSession(t, e, RootID, 0)
 	l := mustAcquire(t, e, sid, RootID, "db")
 	want := Report{Latency: 40 * time.Millisecond, Overloaded: true}
 	for range 2 {
@@ -532,10 +628,10 @@ func TestReleaseReportsToObserver(t *testing.T) {
 }
 
 func TestDeadWorkerLeasesAreReclaimed(t *testing.T) {
-	e, clock := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
-	node := mustNode(t, e, RootID, Spec{})
-	dead := mustSession(t, e, 10*time.Second)
-	live := mustSession(t, e, 0)
+	e, admin, clock := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
+	node := mustNode(t, e, admin, RootID, Spec{})
+	dead := mustSession(t, e, RootID, 10*time.Second)
+	live := mustSession(t, e, RootID, 0)
 	stale := mustAcquire(t, e, dead, node, "db")
 
 	out := make(chan grant, 1)
@@ -570,8 +666,8 @@ func TestDeadWorkerLeasesAreReclaimed(t *testing.T) {
 }
 
 func TestSessionExpiresWithoutReaper(t *testing.T) {
-	e, clock := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
-	sid := mustSession(t, e, 10*time.Second)
+	e, _, clock := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
+	sid := mustSession(t, e, RootID, 10*time.Second)
 	mustAcquire(t, e, sid, RootID, "db")
 	clock.Advance(10 * time.Second)
 	if _, err := e.Heartbeat(sid); !errors.Is(err, ErrSessionExpired) {
@@ -583,8 +679,8 @@ func TestSessionExpiresWithoutReaper(t *testing.T) {
 }
 
 func TestHeartbeatKeepsLeases(t *testing.T) {
-	e, clock := newEngine(t, Spec{})
-	sid := mustSession(t, e, 10*time.Second)
+	e, _, clock := newEngine(t, Spec{})
+	sid := mustSession(t, e, RootID, 10*time.Second)
 	l := mustAcquire(t, e, sid, RootID, "db")
 	for range 5 {
 		clock.Advance(9 * time.Second)
@@ -599,8 +695,8 @@ func TestHeartbeatKeepsLeases(t *testing.T) {
 }
 
 func TestMaxHoldExpiresLease(t *testing.T) {
-	e, clock := newEngine(t, Spec{Limits: map[Class]int{"tool": 1}})
-	sid := mustSession(t, e, 0)
+	e, _, clock := newEngine(t, Spec{Limits: map[Class]int{"tool": 1}})
+	sid := mustSession(t, e, RootID, 0)
 	l, _, err := e.Acquire(context.Background(), sid, RootID, "tool", AcquireOptions{MaxHold: time.Minute})
 	if err != nil {
 		t.Fatalf("Acquire: %v", err)
@@ -626,8 +722,8 @@ func TestMaxHoldExpiresLease(t *testing.T) {
 }
 
 func TestAcquireContextCancelled(t *testing.T) {
-	e, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
-	sid := mustSession(t, e, 0)
+	e, _, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
+	sid := mustSession(t, e, RootID, 0)
 	l := mustAcquire(t, e, sid, RootID, "db")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -653,15 +749,15 @@ func TestAcquireContextCancelled(t *testing.T) {
 }
 
 func TestEndingNodeFailsWaiters(t *testing.T) {
-	e, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
-	tenant := mustNode(t, e, RootID, Spec{})
-	task := mustNode(t, e, tenant, Spec{})
-	sid := mustSession(t, e, 0)
+	e, admin, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
+	tenant := mustNode(t, e, admin, RootID, Spec{})
+	task := mustNode(t, e, admin, tenant, Spec{})
+	sid := mustSession(t, e, RootID, 0)
 	mustAcquire(t, e, sid, RootID, "db")
 
 	out := make(chan grant, 2)
 	acquireAsync(t, e, context.Background(), sid, task, "db", 2, out)
-	if _, err := e.Cancel(tenant); err != nil {
+	if _, err := e.Cancel(admin, tenant); err != nil {
 		t.Fatalf("Cancel: %v", err)
 	}
 	for range 2 {
@@ -673,9 +769,9 @@ func TestEndingNodeFailsWaiters(t *testing.T) {
 }
 
 func TestClosingSessionFailsWaiters(t *testing.T) {
-	e, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
-	holder := mustSession(t, e, 0)
-	waiting := mustSession(t, e, 0)
+	e, _, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
+	holder := mustSession(t, e, RootID, 0)
+	waiting := mustSession(t, e, RootID, 0)
 	mustAcquire(t, e, holder, RootID, "db")
 
 	out := make(chan grant, 1)
@@ -702,10 +798,10 @@ func TestFairnessAcrossTenants(t *testing.T) {
 	}
 	for _, tc := range tests {
 		t.Run(tc.name, func(t *testing.T) {
-			e, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
-			a := mustNode(t, e, RootID, Spec{Name: "a", Weight: tc.weightA})
-			b := mustNode(t, e, RootID, Spec{Name: "b", Weight: tc.weightB})
-			sid := mustSession(t, e, 0)
+			e, admin, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
+			a := mustNode(t, e, admin, RootID, Spec{Name: "a", Weight: tc.weightA})
+			b := mustNode(t, e, admin, RootID, Spec{Name: "b", Weight: tc.weightB})
+			sid := mustSession(t, e, RootID, 0)
 			blocker := mustAcquire(t, e, sid, RootID, "db")
 
 			total := tc.queuedA + tc.queuedB
@@ -734,13 +830,13 @@ func TestFairnessAcrossTenants(t *testing.T) {
 }
 
 func TestPriorityWithinTenant(t *testing.T) {
-	e, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
-	tenant := mustNode(t, e, RootID, Spec{})
-	low := mustNode(t, e, tenant, Spec{Priority: 0})
-	high := mustNode(t, e, tenant, Spec{Priority: 5})
+	e, admin, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 1}})
+	tenant := mustNode(t, e, admin, RootID, Spec{})
+	low := mustNode(t, e, admin, tenant, Spec{Priority: 0})
+	high := mustNode(t, e, admin, tenant, Spec{Priority: 5})
 	// The highest priority task cannot run at all, and must not block the others.
-	capped := mustNode(t, e, tenant, Spec{Priority: 9, Limits: map[Class]int{"db": 0}})
-	sid := mustSession(t, e, 0)
+	capped := mustNode(t, e, admin, tenant, Spec{Priority: 9, Limits: map[Class]int{"db": 0}})
+	sid := mustSession(t, e, RootID, 0)
 	blocker := mustAcquire(t, e, sid, RootID, "db")
 
 	ctx, cancel := context.WithCancel(context.Background())
@@ -765,8 +861,8 @@ func TestPriorityWithinTenant(t *testing.T) {
 }
 
 func TestLoweringLimitRevokesNothing(t *testing.T) {
-	e, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 4}})
-	sid := mustSession(t, e, 0)
+	e, _, _ := newEngine(t, Spec{Limits: map[Class]int{"db": 4}})
+	sid := mustSession(t, e, RootID, 0)
 	var leases []LeaseID
 	for range 4 {
 		leases = append(leases, mustAcquire(t, e, sid, RootID, "db"))
@@ -807,18 +903,18 @@ func TestEventsCarryIncreasingSeq(t *testing.T) {
 	if err != nil {
 		t.Fatalf("New: %v", err)
 	}
-	node, seqNode, err := e.CreateNode(RootID, Spec{})
+	sid, seqSession, err := e.OpenSession(RootID, time.Minute)
 	if err != nil {
-		t.Fatalf("CreateNode: %v", err)
+		t.Fatalf("OpenSession: %v", err)
 	}
-	sid, seqSession, _ := e.OpenSession(time.Minute)
+	node, seqNode, _ := e.CreateNode(sid, RootID, Spec{})
 	seqConsume, _ := e.Consume(sid, node, "http", 3)
 	l, seqLease, _ := e.Acquire(context.Background(), sid, node, "db", AcquireOptions{})
 	seqRelease, _ := e.Release(sid, l, Report{})
-	seqCancel, _ := e.Cancel(node)
+	seqCancel, _ := e.Cancel(sid, node)
 
 	wantKinds := []EventKind{
-		EventNodeCreated, EventNodeCreated, EventSessionOpened, EventConsumed,
+		EventNodeCreated, EventSessionOpened, EventNodeCreated, EventConsumed,
 		EventLeaseGranted, EventLeaseEnded, EventNodeEnded,
 	}
 	if len(rec.events) != len(wantKinds) {
@@ -833,7 +929,7 @@ func TestEventsCarryIncreasingSeq(t *testing.T) {
 		}
 	}
 	// Each call returns the seq of the event it caused.
-	gotSeqs := []uint64{seqNode, seqSession, seqConsume, seqLease, seqRelease, seqCancel}
+	gotSeqs := []uint64{seqSession, seqNode, seqConsume, seqLease, seqRelease, seqCancel}
 	for i, got := range gotSeqs {
 		if want := uint64(i + 2); got != want {
 			t.Errorf("call %d returned seq %d, want %d", i, got, want)

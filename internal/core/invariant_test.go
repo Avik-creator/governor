@@ -119,6 +119,10 @@ func checkInvariants(t *testing.T, e *Engine, terminal map[NodeID]State) {
 		if l.n.leases[id] != l || l.s.leases[id] != l {
 			t.Fatalf("I6: lease %d is missing from its node or session", id)
 		}
+		// I9: a lease is only ever held inside its session's scope.
+		if !l.s.covers(l.n) {
+			t.Fatalf("I9: lease %d at node %d is outside the scope of session %d", id, l.n.id, l.s.id)
+		}
 	}
 
 	// I8: no queued acquire fits, and the queues hold no dead entries.
@@ -136,6 +140,8 @@ func checkInvariants(t *testing.T, e *Engine, terminal map[NodeID]State) {
 					t.Fatalf("queue %s keeps a settled waiter", class)
 				case w.n.state != StateActive || e.sessions[w.s.id] != w.s:
 					t.Fatalf("queue %s keeps a waiter of an ended node or session", class)
+				case !w.s.covers(w.n):
+					t.Fatalf("I9: queue %s keeps a waiter outside its session's scope", class)
 				case w.n.fits(class):
 					t.Fatalf("I8: waiter at node %d fits %s but is queued", w.n.id, class)
 				case i > 0 && tq.waiters[i-1].n.priority < w.n.priority:
@@ -169,7 +175,9 @@ type fuzzer struct {
 	nodes    []NodeID
 	parent   map[NodeID]NodeID
 	consumed map[NodeID]map[Resource]int64 // successful consumes, by node
+	admin    SessionID                     // scoped to the root, never expires or closes
 	sessions []SessionID
+	scope    map[SessionID]NodeID
 	cancels  []func() // each cancels one queued acquire and waits for it to return
 	terminal map[NodeID]State
 	wg       sync.WaitGroup
@@ -190,6 +198,7 @@ func newFuzzer(t *testing.T, seed int64) *fuzzer {
 		nodes:    []NodeID{RootID},
 		parent:   make(map[NodeID]NodeID),
 		consumed: make(map[NodeID]map[Resource]int64),
+		scope:    make(map[SessionID]NodeID),
 		terminal: make(map[NodeID]State),
 	}
 	e, err := New(Config{
@@ -204,6 +213,8 @@ func newFuzzer(t *testing.T, seed int64) *fuzzer {
 		t.Fatalf("New: %v", err)
 	}
 	f.e, f.audit.e = e, e
+	f.admin = mustSession(t, e, RootID, 0)
+	f.scope[f.admin] = RootID
 	return f
 }
 
@@ -219,6 +230,77 @@ func (f *fuzzer) session() SessionID {
 	return f.sessions[f.rng.Intn(len(f.sessions))]
 }
 
+// actor returns a random session, falling back to the admin session.
+func (f *fuzzer) actor() SessionID {
+	if sid := f.session(); sid != 0 && f.rng.Intn(3) != 0 {
+		return sid
+	}
+	return f.admin
+}
+
+// inScope is the model's answer to whether sid may act on id.
+func (f *fuzzer) inScope(sid SessionID, id NodeID) bool {
+	scope, ok := f.scope[sid]
+	for a := id; ok && a != 0; a = f.parent[a] {
+		if a == scope {
+			return true
+		}
+	}
+	return false
+}
+
+// target picks a node for sid to act on, usually one inside its scope.
+func (f *fuzzer) target(sid SessionID) NodeID {
+	if f.rng.Intn(4) == 0 {
+		return f.node()
+	}
+	var inside []NodeID
+	for _, id := range f.nodes {
+		if f.inScope(sid, id) {
+			inside = append(inside, id)
+		}
+	}
+	if len(inside) == 0 {
+		return f.node()
+	}
+	return inside[f.rng.Intn(len(inside))]
+}
+
+// checkScope checks I9 on the outcome of a call that sid made on id.
+func (f *fuzzer) checkScope(sid SessionID, id NodeID, before uint64, err error) {
+	f.t.Helper()
+	inside, forbidden := f.inScope(sid, id), errors.Is(err, ErrForbidden)
+	switch {
+	case forbidden && inside:
+		f.t.Fatalf("session %d was forbidden from node %d inside its scope", sid, id)
+	case forbidden && f.audit.seq != before:
+		f.t.Fatalf("I9: forbidden call by session %d on node %d changed state", sid, id)
+	case !inside && !forbidden && !errors.Is(err, ErrSessionExpired):
+		f.t.Fatalf("I9: session %d acted on node %d outside its scope: %v", sid, id, err)
+	}
+}
+
+// openSession opens a session scoped to the root or to a random node.
+func (f *fuzzer) openSession() {
+	scope := RootID
+	if f.rng.Intn(2) == 0 {
+		scope = f.node()
+	}
+	ttl := time.Duration(f.rng.Intn(4)) * 5 * time.Second
+	if sid, _, err := f.e.OpenSession(scope, ttl); err == nil {
+		f.sessions = append(f.sessions, sid)
+		f.scope[sid] = scope
+	}
+}
+
+// endNode cancels or closes a random node as a random session.
+func (f *fuzzer) endNode(end func(*Engine, SessionID, NodeID) (uint64, error)) {
+	sid := f.actor()
+	id, before := f.target(sid), f.audit.seq
+	_, err := end(f.e, sid, id)
+	f.checkScope(sid, id, before, err)
+}
+
 // step performs one random operation.
 func (f *fuzzer) step() {
 	switch op := f.rng.Intn(100); {
@@ -227,17 +309,15 @@ func (f *fuzzer) step() {
 	case op < 37:
 		f.consume()
 	case op < 42:
-		ttl := time.Duration(f.rng.Intn(4)) * 5 * time.Second
-		sid, _, _ := f.e.OpenSession(ttl)
-		f.sessions = append(f.sessions, sid)
+		f.openSession()
 	case op < 67:
 		f.acquire()
 	case op < 82:
 		f.release()
 	case op < 85:
-		f.e.Cancel(f.node())
+		f.endNode((*Engine).Cancel)
 	case op < 87:
-		f.e.Close(f.node())
+		f.endNode((*Engine).Close)
 	case op < 88:
 		f.e.CloseSession(f.session())
 	case op < 91:
@@ -272,8 +352,11 @@ func (f *fuzzer) createNode() {
 	if f.rng.Intn(4) == 0 {
 		spec.Deadline = f.clock.Now().Add(time.Duration(f.rng.Intn(40)) * time.Second)
 	}
-	parent := f.node()
-	if id, _, err := f.e.CreateNode(parent, spec); err == nil {
+	sid := f.actor()
+	parent, before := f.target(sid), f.audit.seq
+	id, _, err := f.e.CreateNode(sid, parent, spec)
+	f.checkScope(sid, parent, before, err)
+	if err == nil {
 		f.nodes = append(f.nodes, id)
 		f.parent[id] = parent
 	}
@@ -281,13 +364,11 @@ func (f *fuzzer) createNode() {
 
 // consume checks every outcome against the fuzzer's own record of usage.
 func (f *fuzzer) consume() {
-	id, r := f.node(), fuzzResources[f.rng.Intn(2)]
-	amount := int64(1 + f.rng.Intn(8))
-	var sid SessionID
-	if f.rng.Intn(3) == 0 {
-		sid = f.session()
-	}
+	sid := f.actor()
+	id, r := f.target(sid), fuzzResources[f.rng.Intn(2)]
+	amount, before := int64(1+f.rng.Intn(8)), f.audit.seq
 	_, err := f.e.Consume(sid, id, r, amount)
+	f.checkScope(sid, id, before, err)
 	var d *DeniedError
 	switch {
 	case err == nil:
@@ -318,30 +399,32 @@ func (f *fuzzer) expected(r Resource) map[NodeID]int64 {
 
 // acquire starts an Acquire and returns once it has been granted, failed or queued.
 func (f *fuzzer) acquire() {
-	sid := f.session()
-	if sid == 0 {
-		return
-	}
-	id, class := f.node(), fuzzClasses[f.rng.Intn(2)]
+	sid := f.actor()
+	id, class := f.target(sid), fuzzClasses[f.rng.Intn(2)]
 	opts := AcquireOptions{MaxHold: time.Duration(f.rng.Intn(3)) * 6 * time.Second}
 	ctx, cancel := context.WithCancel(context.Background())
 	// Apply any due expiry first, so the Acquire itself cannot shrink the queue.
 	f.e.Heartbeat(sid)
 	f.e.State(id)
-	before := queued(f.e)
+	before, seq := queued(f.e), f.audit.seq
+	var err error
 	returned := make(chan struct{})
 	f.wg.Go(func() {
 		defer close(returned)
-		f.e.Acquire(ctx, sid, id, class, opts)
+		_, _, err = f.e.Acquire(ctx, sid, id, class, opts)
 	})
 	for {
 		select {
 		case <-returned:
 			cancel()
+			f.checkScope(sid, id, seq, err)
 			return
 		default:
 		}
 		if queued(f.e) > before {
+			if !f.inScope(sid, id) {
+				f.t.Fatalf("I9: session %d queued at node %d outside its scope", sid, id)
+			}
 			f.cancels = append(f.cancels, func() {
 				cancel()
 				<-returned
@@ -398,7 +481,7 @@ func (f *fuzzer) drain() {
 	for _, cancel := range f.cancels {
 		cancel()
 	}
-	for _, sid := range f.sessions {
+	for _, sid := range append(f.sessions, f.admin) {
 		f.e.CloseSession(sid)
 	}
 	f.wg.Wait()
@@ -446,7 +529,7 @@ func TestRandomOperations(t *testing.T) {
 	}
 }
 
-// benchEngine returns an engine with a tenant and a task, reaped in the background.
+// benchEngine returns an engine and a task under a tenant, reaped in the background.
 func benchEngine(b *testing.B) (*Engine, NodeID) {
 	b.Helper()
 	e, err := New(Config{
@@ -462,17 +545,19 @@ func benchEngine(b *testing.B) (*Engine, NodeID) {
 	ctx, cancel := context.WithCancel(context.Background())
 	b.Cleanup(cancel)
 	go e.Run(ctx, 10*time.Millisecond)
-	tenant, _, _ := e.CreateNode(RootID, Spec{Quotas: map[Resource]int64{"http": 1 << 61}})
-	task, _, _ := e.CreateNode(tenant, Spec{})
+	admin, _, _ := e.OpenSession(RootID, 0)
+	tenant, _, _ := e.CreateNode(admin, RootID, Spec{Quotas: map[Resource]int64{"http": 1 << 61}})
+	task, _, _ := e.CreateNode(admin, tenant, Spec{})
 	return e, task
 }
 
 func BenchmarkConsume(b *testing.B) {
 	e, task := benchEngine(b)
 	b.RunParallel(func(pb *testing.PB) {
-		sub, _, _ := e.CreateNode(task, Spec{})
+		sid, _, _ := e.OpenSession(task, 0)
+		sub, _, _ := e.CreateNode(sid, task, Spec{})
 		for pb.Next() {
-			if _, err := e.Consume(0, sub, "http", 1); err != nil {
+			if _, err := e.Consume(sid, sub, "http", 1); err != nil {
 				b.Errorf("Consume: %v", err)
 				return
 			}
@@ -493,8 +578,8 @@ func BenchmarkAcquireRelease(b *testing.B) {
 			e, task := benchEngine(b)
 			ctx := context.Background()
 			b.RunParallel(func(pb *testing.PB) {
-				sid, _, _ := e.OpenSession(0)
-				sub, _, _ := e.CreateNode(task, Spec{})
+				sid, _, _ := e.OpenSession(task, 0)
+				sub, _, _ := e.CreateNode(sid, task, Spec{})
 				for pb.Next() {
 					l, _, err := e.Acquire(ctx, sid, sub, tc.class, AcquireOptions{})
 					if err != nil {
