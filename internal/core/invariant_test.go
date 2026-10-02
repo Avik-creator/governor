@@ -67,8 +67,11 @@ func checkInvariants(t *testing.T, e *Engine, terminal map[NodeID]State) {
 			}
 		}
 
-		// I2: a node's usage is its own plus its children's.
+		// I2: a node's usage is its own, its children's and that of children since removed.
 		sumUsed := maps.Clone(n.self)
+		for r, u := range n.gone {
+			sumUsed[r] += u
+		}
 		heldSum := make(map[Class]int)
 		for _, l := range n.leases {
 			heldSum[l.class]++
@@ -111,6 +114,13 @@ func checkInvariants(t *testing.T, e *Engine, terminal map[NodeID]State) {
 					t.Fatalf("I7: node %d is active under ended node %d", c.id, n.id)
 				}
 			}
+		}
+	}
+
+	// A session is never left confined to a node that has been removed.
+	for id, s := range e.sessions {
+		if e.nodes[s.scope.id] != s.scope {
+			t.Fatalf("session %d is confined to node %d, which no longer exists", id, s.scope.id)
 		}
 	}
 
@@ -205,8 +215,9 @@ func newFuzzer(t *testing.T, seed int64) *fuzzer {
 		terminal: make(map[NodeID]State),
 	}
 	e, err := New(Config{
-		Clock: f.clock,
-		Sink:  f.audit,
+		Clock:         f.clock,
+		Sink:          f.audit,
+		NodeRetention: 12 * time.Second,
 		Root: Spec{
 			Quotas: map[Resource]int64{"http": 600},
 			Limits: map[Class]int{"db": 4, "api": 6},
@@ -497,6 +508,10 @@ func (f *fuzzer) release() {
 // check verifies the invariants and the quota model after a step.
 func (f *fuzzer) check() {
 	f.t.Helper()
+	// Nodes removed after their retention are no longer targets, but their usage still counts.
+	f.e.mu.Lock()
+	f.nodes = slices.DeleteFunc(f.nodes, func(id NodeID) bool { return f.e.nodes[id] == nil })
+	f.e.mu.Unlock()
 	checkInvariants(f.t, f.e, f.terminal)
 	for _, r := range fuzzResources {
 		want := f.expected(r)

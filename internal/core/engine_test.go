@@ -561,6 +561,68 @@ func TestEnsureNode(t *testing.T) {
 	}
 }
 
+func TestEndedNodesAreRemoved(t *testing.T) {
+	rec := &recorder{}
+	clock := NewManualClock(time.Unix(1_700_000_000, 0))
+	e, err := New(Config{Clock: clock, Sink: rec, NodeRetention: time.Hour})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	admin := mustSession(t, e, RootID, 0)
+	tenant := mustNode(t, e, admin, RootID, Spec{Name: "tenant", Quotas: map[Resource]int64{"http": 100}})
+	run := mustNode(t, e, admin, tenant, Spec{Name: "run"})
+	sub := mustNode(t, e, admin, run, Spec{Name: "sub"})
+	other := mustNode(t, e, admin, tenant, Spec{Name: "other"})
+	worker := mustSession(t, e, run, 0)
+	for id, amount := range map[NodeID]int64{run: 10, sub: 30, other: 5} {
+		if _, err := e.Consume(admin, id, "http", amount); err != nil {
+			t.Fatalf("Consume: %v", err)
+		}
+	}
+	if _, err := e.Cancel(admin, run); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+
+	// Inside the retention the ended nodes are still known, and stay ended.
+	clock.Advance(59 * time.Minute)
+	e.Reap()
+	mustState(t, e, run, StateCancelled)
+	mustState(t, e, sub, StateCancelled)
+	if id, created, _, _ := e.EnsureNode(admin, tenant, Spec{Name: "run"}, "", 0); created || id != run {
+		t.Errorf("EnsureNode inside the retention = %d, %t, want the ended node %d", id, created, run)
+	}
+
+	clock.Advance(time.Minute)
+	e.Reap()
+	for _, id := range []NodeID{run, sub} {
+		if _, err := e.State(id); !errors.Is(err, ErrUnknownNode) {
+			t.Errorf("State(%d) after the retention = %v, want ErrUnknownNode", id, err)
+		}
+	}
+	mustState(t, e, other, StateActive)
+	// What the removed nodes consumed still counts against their ancestors.
+	if got := used(e, tenant, "http"); got != 45 {
+		t.Errorf("tenant has used %d, want 45", got)
+	}
+	_, err = e.Consume(admin, other, "http", 56)
+	if d, ok := errors.AsType[*DeniedError](err); !ok || d.Used != 45 || d.TopConsumer != other {
+		t.Errorf("Consume = %v, want a denial at 45 used with the remaining child as top consumer", err)
+	}
+	// The session confined to the removed node is gone, and its name is free again.
+	if _, err := e.Heartbeat(worker); !errors.Is(err, ErrSessionExpired) {
+		t.Errorf("Heartbeat(session scoped to a removed node) = %v, want ErrSessionExpired", err)
+	}
+	if id, created, _, err := e.EnsureNode(admin, tenant, Spec{Name: "run"}, "", 0); err != nil || !created || id == run {
+		t.Errorf("EnsureNode after the retention = %d, %t, %v, want a new node", id, created, err)
+	}
+	checkInvariants(t, e, map[NodeID]State{})
+
+	// A restart reproduces the removal.
+	r := mustRestore(t, clock, rec.events)
+	sameState(t, e, r)
+	checkInvariants(t, r, map[NodeID]State{})
+}
+
 func TestChildren(t *testing.T) {
 	e, admin, _ := newEngine(t, Spec{})
 	a := mustNode(t, e, admin, RootID, Spec{Name: "a"})

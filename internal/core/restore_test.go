@@ -80,6 +80,7 @@ func sameState(t *testing.T, want, got *Engine) {
 			w.state == g.state && w.deadline.Equal(g.deadline) &&
 			maps.Equal(w.quota, g.quota) && maps.Equal(w.used, g.used) && maps.Equal(w.self, g.self) &&
 			maps.Equal(w.limits, g.limits) && maps.Equal(w.held, g.held) &&
+			maps.Equal(w.gone, g.gone) && w.endedAt.Equal(g.endedAt) &&
 			slices.Equal(slices.Sorted(maps.Keys(w.leases)), slices.Sorted(maps.Keys(g.leases)))
 		if !same {
 			t.Fatalf("node %d differs:\n got %+v\nwant %+v", id, *g, *w)
