@@ -3,6 +3,8 @@ package core
 import (
 	"context"
 	"fmt"
+	"maps"
+	"slices"
 	"time"
 )
 
@@ -84,6 +86,13 @@ func (e *Engine) Heartbeat(sid SessionID) (time.Time, error) {
 		s.expires = e.clock.Now().Add(s.ttl)
 	}
 	return s.expires, nil
+}
+
+// Sessions returns the ids of every session, in no particular order.
+func (e *Engine) Sessions() []SessionID {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	return slices.Collect(maps.Keys(e.sessions))
 }
 
 // SessionDone returns a channel that is closed once the session has ended.
