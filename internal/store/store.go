@@ -1,4 +1,4 @@
-// Package store keeps the engine's events in Postgres as the durable record.
+// Package store keeps the engine's events in Postgres or SQLite as the durable record.
 package store
 
 import (
@@ -10,19 +10,51 @@ import (
 	"fmt"
 	"io/fs"
 	"iter"
+	"net/url"
+	"strings"
 	"sync"
 	"time"
 
 	"github.com/doug-martin/goqu/v9"
 	_ "github.com/doug-martin/goqu/v9/dialect/postgres" // registers the goqu dialect
+	_ "github.com/doug-martin/goqu/v9/dialect/sqlite3"  // registers the goqu dialect
 	_ "github.com/jackc/pgx/v5/stdlib"                  // registers the "pgx" driver
 	"github.com/pressly/goose/v3"
+	_ "modernc.org/sqlite" // registers the "sqlite" driver
 
 	"github.com/Avik-creator/governor/internal/core"
 )
 
-//go:embed migrations/*.sql
+//go:embed migrations/*/*.sql
 var migrations embed.FS
+
+// SQLiteScheme starts the URL of a SQLite database: "sqlite:" followed by the path of its file.
+const SQLiteScheme = "sqlite:"
+
+// backend is one kind of database the store can record to.
+type backend struct {
+	driver     string        // database/sql driver
+	dialect    string        // goqu dialect
+	goose      goose.Dialect // migration dialect
+	migrations string        // directory of its migrations
+}
+
+var (
+	postgres = backend{driver: "pgx", dialect: "postgres", goose: goose.DialectPostgres, migrations: "migrations/postgres"}
+	sqlite   = backend{driver: "sqlite", dialect: "sqlite3", goose: goose.DialectSQLite3, migrations: "migrations/sqlite"}
+)
+
+// resolve picks the backend a database URL names and returns the DSN its driver takes.
+func resolve(dsn string) (backend, string) {
+	path, ok := strings.CutPrefix(dsn, SQLiteScheme)
+	if !ok {
+		return postgres, dsn
+	}
+	// WAL with full sync keeps a commit durable, and the timeout lets a reader wait for the writer.
+	pragmas := url.Values{"_pragma": {"journal_mode(WAL)", "synchronous(FULL)", "busy_timeout(5000)"}}
+	file := url.URL{Scheme: "file", Path: strings.TrimPrefix(path, "//"), RawQuery: pragmas.Encode()}
+	return sqlite, file.String()
+}
 
 const (
 	// eventsTable is the table that holds one row per engine event.
@@ -40,8 +72,10 @@ var ErrClosed = errors.New("store: closed")
 
 // Store writes events in batches; it is a core.Sink and a server.Committer.
 type Store struct {
-	sqlDB *sql.DB
-	db    *goqu.Database
+	sqlDB      *sql.DB
+	db         *goqu.Database
+	migrations string // directory of the backend's migrations
+	dialect    goose.Dialect
 
 	mu      sync.Mutex
 	pending []core.Event  // emitted but not yet taken by the writer
@@ -56,20 +90,23 @@ type Store struct {
 	once   sync.Once
 }
 
-// Open connects to Postgres, applies the migrations and starts the writer.
+// Open connects to the database a URL names, applies the migrations and starts the writer.
 func Open(ctx context.Context, dsn string) (*Store, error) {
-	sqlDB, err := sql.Open("pgx", dsn)
+	b, dsn := resolve(dsn)
+	sqlDB, err := sql.Open(b.driver, dsn)
 	if err != nil {
 		return nil, fmt.Errorf("store: open: %w", err)
 	}
 	s := &Store{
-		sqlDB:   sqlDB,
-		db:      goqu.New("postgres", sqlDB),
-		changed: make(chan struct{}),
-		wake:    make(chan struct{}, 1),
-		stop:    make(chan struct{}),
-		done:    make(chan struct{}),
-		failed:  make(chan struct{}),
+		sqlDB:      sqlDB,
+		db:         goqu.New(b.dialect, sqlDB),
+		migrations: b.migrations,
+		dialect:    b.goose,
+		changed:    make(chan struct{}),
+		wake:       make(chan struct{}, 1),
+		stop:       make(chan struct{}),
+		done:       make(chan struct{}),
+		failed:     make(chan struct{}),
 	}
 	if err := s.init(ctx); err != nil {
 		_ = sqlDB.Close()
@@ -81,11 +118,11 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 
 // init applies the migrations and reads how far the stored events go.
 func (s *Store) init(ctx context.Context) error {
-	dir, err := fs.Sub(migrations, "migrations")
+	dir, err := fs.Sub(migrations, s.migrations)
 	if err != nil {
 		return fmt.Errorf("store: migrations: %w", err)
 	}
-	provider, err := goose.NewProvider(goose.DialectPostgres, s.sqlDB, dir)
+	provider, err := goose.NewProvider(s.dialect, s.sqlDB, dir)
 	if err != nil {
 		return fmt.Errorf("store: migrations: %w", err)
 	}
