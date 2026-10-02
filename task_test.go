@@ -12,7 +12,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 // ended waits for ctx to be done and returns its cause.

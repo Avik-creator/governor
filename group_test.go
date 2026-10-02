@@ -7,7 +7,7 @@ import (
 	"testing"
 	"time"
 
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 func TestGroup(t *testing.T) {

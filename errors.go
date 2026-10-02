@@ -8,7 +8,7 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 )
 
 // Errors returned by this package, matched with errors.Is.

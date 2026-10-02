@@ -13,7 +13,7 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 )
 
 // Environment variables that Dial reads unless an option overrides them.

@@ -3,8 +3,8 @@ package main
 import (
 	"fmt"
 
-	"github.com/avikmukherjee/governor/internal/config"
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/config"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 // reconcile makes the tree match the configuration and returns each API key's scope.

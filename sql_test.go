@@ -13,7 +13,7 @@ import (
 	_ "github.com/doug-martin/goqu/v9/dialect/postgres" // registers the goqu dialect
 	_ "github.com/jackc/pgx/v5/stdlib"                  // registers the "pgx" driver
 
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 // sqlTable is the scratch table the transaction tests write to.

@@ -8,7 +8,7 @@ import (
 
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 )
 
 // watchRetry is how long a task waits before watching its node again after a failure.

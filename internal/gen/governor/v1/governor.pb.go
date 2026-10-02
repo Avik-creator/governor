@@ -1544,7 +1544,7 @@ const file_governor_v1_governor_proto_rawDesc = "" +
 	"\fCloseSession\x12 .governor.v1.CloseSessionRequest\x1a!.governor.v1.CloseSessionResponse\x12D\n" +
 	"\aAcquire\x12\x1b.governor.v1.AcquireRequest\x1a\x1c.governor.v1.AcquireResponse\x12D\n" +
 	"\aRelease\x12\x1b.governor.v1.ReleaseRequest\x1a\x1c.governor.v1.ReleaseResponse\x12G\n" +
-	"\bValidate\x12\x1c.governor.v1.ValidateRequest\x1a\x1d.governor.v1.ValidateResponseBGZEgithub.com/avikmukherjee/governor/internal/gen/governor/v1;governorv1b\x06proto3"
+	"\bValidate\x12\x1c.governor.v1.ValidateRequest\x1a\x1d.governor.v1.ValidateResponseBFZDgithub.com/Avik-creator/governor/internal/gen/governor/v1;governorv1b\x06proto3"
 
 var (
 	file_governor_v1_governor_proto_rawDescOnce sync.Once

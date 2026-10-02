@@ -17,11 +17,11 @@ import (
 
 	"google.golang.org/grpc"
 
-	"github.com/avikmukherjee/governor/internal/config"
-	"github.com/avikmukherjee/governor/internal/core"
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
-	"github.com/avikmukherjee/governor/internal/server"
-	"github.com/avikmukherjee/governor/internal/store"
+	"github.com/Avik-creator/governor/internal/config"
+	"github.com/Avik-creator/governor/internal/core"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
+	"github.com/Avik-creator/governor/internal/server"
+	"github.com/Avik-creator/governor/internal/store"
 )
 
 // drainTimeout is how long in-flight calls get to finish on shutdown.

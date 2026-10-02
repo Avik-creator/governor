@@ -7,8 +7,8 @@ import (
 	"google.golang.org/grpc/codes"
 	"google.golang.org/grpc/status"
 
-	"github.com/avikmukherjee/governor/internal/core"
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
+	"github.com/Avik-creator/governor/internal/core"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 )
 
 // errBadKey reports an API key that governord does not know.

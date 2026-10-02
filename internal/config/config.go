@@ -12,7 +12,7 @@ import (
 
 	"go.yaml.in/yaml/v3"
 
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 // Defaults for the settings a file may leave out.

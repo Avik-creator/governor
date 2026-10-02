@@ -5,7 +5,7 @@ import (
 	"errors"
 	"time"
 
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 )
 
 // Fractions of the TTL that pace the heartbeat and the local deadline.

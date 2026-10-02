@@ -11,8 +11,8 @@ import (
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 
-	"github.com/avikmukherjee/governor/internal/core"
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
+	"github.com/Avik-creator/governor/internal/core"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 )
 
 // digest is the SHA-256 of a secret; secrets are only ever stored hashed.

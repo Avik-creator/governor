@@ -10,7 +10,7 @@ import (
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/types/known/durationpb"
 
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 )
 
 // Limits on how a call is repeated when governord cannot be reached.

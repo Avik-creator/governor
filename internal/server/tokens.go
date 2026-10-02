@@ -7,7 +7,7 @@ import (
 	"log/slog"
 	"time"
 
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 // tokenTimeout bounds the removal of a token after its session has ended.

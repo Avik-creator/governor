@@ -18,7 +18,7 @@ import (
 	_ "github.com/jackc/pgx/v5/stdlib"                  // registers the "pgx" driver
 	"github.com/pressly/goose/v3"
 
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 //go:embed migrations/*.sql

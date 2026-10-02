@@ -1,4 +1,4 @@
-module github.com/avikmukherjee/governor
+module github.com/Avik-creator/governor
 
 go 1.26.0
 

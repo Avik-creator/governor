@@ -7,7 +7,7 @@ import (
 
 	"github.com/doug-martin/goqu/v9"
 
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 // tokensTable holds one row per session token, keyed by the token's hash.

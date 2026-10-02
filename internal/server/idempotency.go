@@ -9,7 +9,7 @@ import (
 
 	"google.golang.org/protobuf/proto"
 
-	"github.com/avikmukherjee/governor/internal/core"
+	"github.com/Avik-creator/governor/internal/core"
 )
 
 // maxRemembered caps how many request ids are kept per session.

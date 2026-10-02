@@ -8,8 +8,8 @@ import (
 	"google.golang.org/protobuf/types/known/durationpb"
 	"google.golang.org/protobuf/types/known/timestamppb"
 
-	"github.com/avikmukherjee/governor/internal/core"
-	pb "github.com/avikmukherjee/governor/internal/gen/governor/v1"
+	"github.com/Avik-creator/governor/internal/core"
+	pb "github.com/Avik-creator/governor/internal/gen/governor/v1"
 )
 
 // toInt converts a wire integer, rejecting values an int cannot hold.
