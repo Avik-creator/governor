@@ -8,6 +8,7 @@ import "google/protobuf/timestamp.proto";
 option go_package = "github.com/avikmukherjee/governor/internal/gen/governor/v1;governorv1";
 
 // GovernorService is the API of governord; SPEC.md defines its semantics.
+// Calls carry "authorization: Bearer <secret>" metadata: an API key or a session token.
 service GovernorService {
   // CreateNode adds a child node under a parent.
   rpc CreateNode(CreateNodeRequest) returns (CreateNodeResponse);
@@ -101,9 +102,8 @@ message Denial {
 message CreateNodeRequest {
   // request_id makes a retry return the node created the first time.
   string request_id = 1;
-  string session_token = 2;
-  uint64 parent_id = 3;
-  Spec spec = 4;
+  uint64 parent_id = 2;
+  Spec spec = 3;
 }
 
 message CreateNodeResponse {
@@ -113,31 +113,27 @@ message CreateNodeResponse {
 message ConsumeRequest {
   // request_id makes a retry charge nothing a second time.
   string request_id = 1;
-  string session_token = 2;
-  uint64 node_id = 3;
-  string resource = 4;
-  int64 amount = 5;
+  uint64 node_id = 2;
+  string resource = 3;
+  int64 amount = 4;
 }
 
 message ConsumeResponse {}
 
 message CancelNodeRequest {
-  string session_token = 1;
-  uint64 node_id = 2;
+  uint64 node_id = 1;
 }
 
 message CancelNodeResponse {}
 
 message CloseNodeRequest {
-  string session_token = 1;
-  uint64 node_id = 2;
+  uint64 node_id = 1;
 }
 
 message CloseNodeResponse {}
 
 message WatchNodeRequest {
-  string session_token = 1;
-  uint64 node_id = 2;
+  uint64 node_id = 1;
 }
 
 message WatchNodeResponse {
@@ -146,14 +142,12 @@ message WatchNodeResponse {
 }
 
 message OpenSessionRequest {
-  // api_key selects the node the session is confined to.
-  string api_key = 1;
   // ttl is how long the session lives without a heartbeat; zero means forever.
-  google.protobuf.Duration ttl = 2;
+  google.protobuf.Duration ttl = 1;
 }
 
 message OpenSessionResponse {
-  // session_token is a secret that names the session on every later call.
+  // session_token is the secret to send as the bearer on every later call.
   string session_token = 1;
   // scope_id is the node the session is confined to, with its whole subtree.
   uint64 scope_id = 2;
@@ -161,28 +155,23 @@ message OpenSessionResponse {
   google.protobuf.Timestamp expires_at = 3;
 }
 
-message HeartbeatRequest {
-  string session_token = 1;
-}
+message HeartbeatRequest {}
 
 message HeartbeatResponse {
   google.protobuf.Timestamp expires_at = 1;
 }
 
-message CloseSessionRequest {
-  string session_token = 1;
-}
+message CloseSessionRequest {}
 
 message CloseSessionResponse {}
 
 message AcquireRequest {
   // request_id makes a retry return the lease granted the first time.
   string request_id = 1;
-  string session_token = 2;
-  uint64 node_id = 3;
-  string class = 4;
+  uint64 node_id = 2;
+  string class = 3;
   // max_hold expires the lease after this long; unset means no maximum.
-  google.protobuf.Duration max_hold = 5;
+  google.protobuf.Duration max_hold = 4;
 }
 
 message AcquireResponse {
@@ -191,12 +180,11 @@ message AcquireResponse {
 }
 
 message ReleaseRequest {
-  string session_token = 1;
-  uint64 lease_id = 2;
+  uint64 lease_id = 1;
   // latency is how long the guarded operation took; unset means not measured.
-  google.protobuf.Duration latency = 3;
+  google.protobuf.Duration latency = 2;
   // overloaded reports that the downstream signalled overload.
-  bool overloaded = 4;
+  bool overloaded = 3;
 }
 
 message ReleaseResponse {}
