@@ -21,6 +21,9 @@ func TestRun(t *testing.T) {
 		wantStderr string
 	}{
 		{"no command", nil, env, "", exitBlock, "usage: governor hook"},
+		{"ui without a key", []string{"ui"}, map[string]string{}, "", exitFailed, "no API key"},
+		{"ui with a missing config", []string{"ui", "-config", "/nonexistent.yaml"}, env, "", exitFailed, "nonexistent.yaml"},
+		{"ui with governord unreachable", []string{"ui"}, env, "", exitFailed, "governord at 127.0.0.1:1"},
 		{"unknown command", []string{"status"}, env, "", exitBlock, "usage: governor hook"},
 		{"unknown flag", []string{"hook", "-nope"}, env, preToolUse, exitBlock, "flag provided but not defined"},
 		{"event that cannot refuse", []string{"hook"}, env, `{"session_id": "s1", "hook_event_name": "SessionEnd"}`, 0, ""},

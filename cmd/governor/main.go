@@ -11,17 +11,30 @@ import (
 	"time"
 
 	"github.com/Avik-creator/governor"
+	"github.com/Avik-creator/governor/internal/config"
 	"github.com/Avik-creator/governor/internal/hook"
+	"github.com/Avik-creator/governor/internal/tui"
 )
+
+// dialTimeout bounds how long the screen waits for governord before giving up.
+const dialTimeout = 5 * time.Second
 
 // exitBlock is the exit code that tells Claude Code and Codex to refuse the tool.
 const exitBlock = 2
 
+// exitFailed is the exit code of a command, other than the hook, that could not do its work.
+const exitFailed = 1
+
 const usage = `usage: governor hook [flags]
+       governor ui [-config file]
 
 hook reads a Claude Code or Codex hook event on stdin and decides whether the
-tool may run. Install it as a PreToolUse command hook. It reads GOVERNOR_ADDR
-and GOVERNOR_API_KEY from the environment.
+tool may run. Install it as a PreToolUse command hook.
+
+ui shows the tasks governord knows, with what they have used, and changes their
+caps and the defaults new tasks start with.
+
+Both read GOVERNOR_ADDR and GOVERNOR_API_KEY from the environment.
 `
 
 func main() {
@@ -30,7 +43,10 @@ func main() {
 
 // run executes one command and returns the process exit code.
 func run(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer, getenv func(string) string) int {
-	if len(args) == 0 || args[0] != "hook" {
+	switch {
+	case len(args) > 0 && args[0] == "ui":
+		return runUI(ctx, args[1:], stderr, getenv)
+	case len(args) == 0 || args[0] != "hook":
 		fmt.Fprint(stderr, usage)
 		return exitBlock
 	}
@@ -63,4 +79,54 @@ func run(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer, 
 		fmt.Fprintln(stderr, "Governor blocked this tool:", err)
 	}
 	return exitBlock
+}
+
+// runUI opens a session and shows the terminal screen until the user quits.
+func runUI(ctx context.Context, args []string, stderr io.Writer, getenv func(string) string) int {
+	flags := flag.NewFlagSet("governor ui", flag.ContinueOnError)
+	flags.SetOutput(stderr)
+	path := flags.String("config", "", "governord configuration file to take the address and a key from")
+	if err := flags.Parse(args); err != nil {
+		return exitFailed
+	}
+	addr, key := governor.DefaultAddr, getenv(governor.EnvAPIKey)
+	if env := getenv(governor.EnvAddr); env != "" {
+		addr = env
+	}
+	if *path != "" {
+		var err error
+		if addr, key, err = fromConfig(*path); err != nil {
+			fmt.Fprintln(stderr, "governor ui:", err)
+			return exitFailed
+		}
+	}
+	dialCtx, cancel := context.WithTimeout(ctx, dialTimeout)
+	client, err := governor.Dial(dialCtx, governor.WithAddr(addr), governor.WithAPIKey(key))
+	cancel()
+	if err != nil {
+		fmt.Fprintf(stderr, "governor ui: governord at %s: %v\n", addr, err)
+		return exitFailed
+	}
+	defer client.Close()
+	if err := tui.Run(ctx, client, addr); err != nil {
+		fmt.Fprintln(stderr, "governor ui:", err)
+		return exitFailed
+	}
+	return 0
+}
+
+// fromConfig takes governord's address and the key that sees the most from its configuration file.
+func fromConfig(path string) (addr, key string, err error) {
+	cfg, err := config.Load(path)
+	if err != nil {
+		return "", "", err
+	}
+	switch {
+	case cfg.AdminKey != "":
+		return cfg.Listen, cfg.AdminKey, nil
+	case len(cfg.Tenants) == 1:
+		return cfg.Listen, cfg.Tenants[0].APIKey, nil
+	default:
+		return "", "", fmt.Errorf("%s has no admin_key and not exactly one tenant; set %s instead", path, governor.EnvAPIKey)
+	}
 }
