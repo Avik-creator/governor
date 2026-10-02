@@ -48,7 +48,7 @@ type GovernorServiceClient interface {
 	CloseNode(ctx context.Context, in *CloseNodeRequest, opts ...grpc.CallOption) (*CloseNodeResponse, error)
 	// WatchNode sends one message when the node ends, then closes the stream.
 	WatchNode(ctx context.Context, in *WatchNodeRequest, opts ...grpc.CallOption) (grpc.ServerStreamingClient[WatchNodeResponse], error)
-	// OpenSession registers a lease holder with a time to live.
+	// OpenSession trades an API key for a session confined to the key's node.
 	OpenSession(ctx context.Context, in *OpenSessionRequest, opts ...grpc.CallOption) (*OpenSessionResponse, error)
 	// Heartbeat renews a session and every lease it holds.
 	Heartbeat(ctx context.Context, in *HeartbeatRequest, opts ...grpc.CallOption) (*HeartbeatResponse, error)
@@ -205,7 +205,7 @@ type GovernorServiceServer interface {
 	CloseNode(context.Context, *CloseNodeRequest) (*CloseNodeResponse, error)
 	// WatchNode sends one message when the node ends, then closes the stream.
 	WatchNode(*WatchNodeRequest, grpc.ServerStreamingServer[WatchNodeResponse]) error
-	// OpenSession registers a lease holder with a time to live.
+	// OpenSession trades an API key for a session confined to the key's node.
 	OpenSession(context.Context, *OpenSessionRequest) (*OpenSessionResponse, error)
 	// Heartbeat renews a session and every lease it holds.
 	Heartbeat(context.Context, *HeartbeatRequest) (*HeartbeatResponse, error)
