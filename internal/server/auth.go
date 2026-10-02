@@ -28,6 +28,12 @@ var public = map[string]bool{
 	pb.GovernorService_Validate_FullMethodName:    true,
 }
 
+// oneShot lists the methods an API key may call directly, with no session of its own.
+var oneShot = map[string]bool{
+	pb.GovernorService_EnsureNode_FullMethodName: true,
+	pb.GovernorService_Consume_FullMethodName:    true,
+}
+
 type sessionKey struct{}
 
 // sessionFrom returns the session the interceptor resolved, or zero if none.
@@ -52,9 +58,14 @@ func (s *Server) authenticate(ctx context.Context, method string) (context.Conte
 	if public[method] {
 		return ctx, nil
 	}
+	secret := hash(bearer(ctx))
 	s.mu.Lock()
-	sid, ok := s.sessions[hash(bearer(ctx))]
+	sid, ok := s.sessions[secret]
 	s.mu.Unlock()
+	// A short-lived caller such as a hook sends its API key and is served by the key's standing session.
+	if !ok && oneShot[method] {
+		sid, ok = s.standing[secret]
+	}
 	if !ok {
 		return ctx, toStatus(core.ErrSessionExpired)
 	}

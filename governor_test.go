@@ -111,9 +111,9 @@ func (b *backend) mustDial(opts ...Option) *Client {
 	return c
 }
 
-// sessions counts the sessions clients hold, leaving out the backend's own.
+// sessions counts the sessions clients hold, leaving out the admin and the key's standing one.
 func (b *backend) sessions() int {
-	return len(b.engine.Sessions()) - 1
+	return len(b.engine.Sessions()) - 2
 }
 
 // waitDone waits for the client to give up its session and returns why.

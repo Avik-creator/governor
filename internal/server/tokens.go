@@ -67,6 +67,20 @@ func (s *Server) adopt(ctx context.Context) error {
 	return nil
 }
 
+// stand opens one session without a TTL per API key, for the calls a key may make directly.
+func (s *Server) stand(ctx context.Context) error {
+	var last uint64
+	for key, scope := range s.keys {
+		sid, _, seq, err := s.engine.OpenSession(scope, 0)
+		if err != nil {
+			return fmt.Errorf("server: open standing session on node %d: %w", scope, err)
+		}
+		s.standing[key], last = sid, seq
+	}
+	// These sessions hold no token, so the next start closes them and opens new ones.
+	return s.durable(ctx, last)
+}
+
 // issue maps a token hash to its session until the session ends.
 func (s *Server) issue(key digest, sid core.SessionID) {
 	ended := s.engine.SessionDone(sid)

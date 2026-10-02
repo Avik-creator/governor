@@ -408,6 +408,10 @@ func TestCallsNeedSession(t *testing.T) {
 	}
 	for name, call := range all {
 		for cred, ctx := range credentials {
+			// Consume is one of the two calls an API key may make directly.
+			if name == "Consume" && cred == "an API key" {
+				continue
+			}
 			t.Run(name+" with "+cred, func(t *testing.T) {
 				wantStatus(t, call(ctx), codes.Unauthenticated, pb.Reason_REASON_SESSION_EXPIRED)
 			})
@@ -415,6 +419,86 @@ func TestCallsNeedSession(t *testing.T) {
 	}
 	if got := h.used(h.a, "http"); got != 0 {
 		t.Errorf("used = %d after unauthenticated calls, want 0", got)
+	}
+}
+
+func TestAPIKeyCallsDirectly(t *testing.T) {
+	h := newHarness(t, core.Spec{}, core.Spec{Quotas: map[core.Resource]int64{"tool_calls": 100, "agents": 1}})
+	a, b := uint64(h.a), uint64(h.b)
+	sessions := len(h.engine.Sessions())
+	run := &pb.EnsureNodeRequest{ParentId: a, Spec: &pb.Spec{Name: "run", Quotas: map[string]int64{"tool_calls": 2}}}
+
+	first, err := h.client.EnsureNode(h.as(keyA), run)
+	if err != nil {
+		t.Fatalf("EnsureNode: %v", err)
+	}
+	again, err := h.client.EnsureNode(h.as(keyA), run)
+	if err != nil {
+		t.Fatalf("second EnsureNode: %v", err)
+	}
+	if !first.GetCreated() || again.GetCreated() || first.GetNodeId() != again.GetNodeId() {
+		t.Errorf("EnsureNode = %v then %v, want one node created once", first, again)
+	}
+
+	// The quota given at creation binds, and a retry with the same request id is not charged twice.
+	charge := &pb.ConsumeRequest{RequestId: "tool-1", NodeId: first.GetNodeId(), Resource: "tool_calls", Amount: 1}
+	for range 3 {
+		if _, err := h.client.Consume(h.as(keyA), charge); err != nil {
+			t.Fatalf("Consume: %v", err)
+		}
+	}
+	charge.RequestId = "tool-2"
+	if _, err := h.client.Consume(h.as(keyA), charge); err != nil {
+		t.Fatalf("Consume: %v", err)
+	}
+	charge.RequestId = "tool-3"
+	_, err = h.client.Consume(h.as(keyA), charge)
+	wantStatus(t, err, codes.ResourceExhausted, pb.Reason_REASON_DENIED)
+
+	// A parent of zero is the key's own tenant.
+	run.ParentId = 0
+	if own, err := h.client.EnsureNode(h.as(keyA), run); err != nil || own.GetNodeId() != first.GetNodeId() {
+		t.Errorf("EnsureNode under parent zero = %v, %v, want node %d", own, err, first.GetNodeId())
+	}
+	run.ParentId = a
+
+	// A node created with a charge takes the charge with it, or is not created.
+	agent := func(name string) *pb.EnsureNodeRequest {
+		return &pb.EnsureNodeRequest{
+			ParentId: first.GetNodeId(), Spec: &pb.Spec{Name: name}, ChargeResource: "agents", ChargeAmount: 1,
+		}
+	}
+	if _, err := h.client.EnsureNode(h.as(keyA), agent("agent-1")); err != nil {
+		t.Fatalf("EnsureNode with a charge: %v", err)
+	}
+	_, err = h.client.EnsureNode(h.as(keyA), agent("agent-2"))
+	wantStatus(t, err, codes.ResourceExhausted, pb.Reason_REASON_DENIED)
+
+	// A key is confined to its tenant, and may call nothing else without a session.
+	_, err = h.client.EnsureNode(h.as(keyA), &pb.EnsureNodeRequest{ParentId: b, Spec: &pb.Spec{Name: "run"}})
+	wantStatus(t, err, codes.PermissionDenied, pb.Reason_REASON_FORBIDDEN)
+	_, err = h.client.EnsureNode(h.as("wrong"), run)
+	wantStatus(t, err, codes.Unauthenticated, pb.Reason_REASON_SESSION_EXPIRED)
+	_, err = h.client.EnsureNode(h.as(keyA), &pb.EnsureNodeRequest{ParentId: a, Spec: &pb.Spec{}})
+	wantStatus(t, err, codes.InvalidArgument, pb.Reason_REASON_INVALID)
+	_, err = h.client.CancelNode(h.as(keyA), &pb.CancelNodeRequest{NodeId: first.GetNodeId()})
+	wantStatus(t, err, codes.Unauthenticated, pb.Reason_REASON_SESSION_EXPIRED)
+
+	// Once the run is cancelled, the same name finds the ended node and work on it is refused.
+	if _, err := h.engine.Cancel(h.admin, core.NodeID(first.GetNodeId())); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	ended, err := h.client.EnsureNode(h.as(keyA), run)
+	if err != nil || ended.GetNodeId() != first.GetNodeId() || ended.GetCreated() {
+		t.Errorf("EnsureNode after a cancel = %v, %v, want the ended node", ended, err)
+	}
+	charge.RequestId = "tool-4"
+	_, err = h.client.Consume(h.as(keyA), charge)
+	wantStatus(t, err, codes.FailedPrecondition, pb.Reason_REASON_CLOSED)
+
+	// None of this opened a session.
+	if got := len(h.engine.Sessions()); got != sessions {
+		t.Errorf("sessions = %d after direct calls, want %d", got, sessions)
 	}
 }
 

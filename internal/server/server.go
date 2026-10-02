@@ -25,6 +25,8 @@ type Server struct {
 	tokens TokenStore
 	keys   map[digest]core.NodeID // API key to the node it confines a session to
 
+	standing map[digest]core.SessionID // API key to the session that serves its one-shot calls
+
 	mu       sync.Mutex
 	sessions map[digest]core.SessionID // token hash to the session it names
 	seen     dedup                     // outcomes of requests that carried a request id
@@ -59,6 +61,7 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		commit:   cfg.Committer,
 		tokens:   cfg.Tokens,
 		keys:     make(map[digest]core.NodeID, len(cfg.Keys)),
+		standing: make(map[digest]core.SessionID, len(cfg.Keys)),
 		sessions: make(map[digest]core.SessionID),
 		closed:   make(chan struct{}),
 	}
@@ -70,6 +73,10 @@ func New(ctx context.Context, cfg Config) (*Server, error) {
 		s.keys[hash(key)] = scope
 	}
 	if err := s.adopt(ctx); err != nil {
+		s.Close()
+		return nil, err
+	}
+	if err := s.stand(ctx); err != nil {
 		s.Close()
 		return nil, err
 	}
@@ -112,6 +119,30 @@ func (s *Server) CreateNode(ctx context.Context, req *pb.CreateNodeRequest) (*pb
 		}
 		return &pb.CreateNodeResponse{NodeId: uint64(id)}, nil
 	})
+}
+
+// EnsureNode returns the parent's newest child with the spec's name, creating it if there is none.
+func (s *Server) EnsureNode(ctx context.Context, req *pb.EnsureNodeRequest) (*pb.EnsureNodeResponse, error) {
+	spec, err := specFromProto(req.GetSpec())
+	if err != nil {
+		return nil, err
+	}
+	sid, parent, resource := sessionFrom(ctx), core.NodeID(req.GetParentId()), core.Resource(req.GetChargeResource())
+	// A caller that only holds an API key does not know its tenant's node, so zero stands for it.
+	if parent == 0 {
+		if parent, err = s.engine.Scope(sid); err != nil {
+			return nil, err
+		}
+	}
+	id, created, seq, err := s.engine.EnsureNode(sid, parent, spec, resource, req.GetChargeAmount())
+	if err != nil {
+		return nil, err
+	}
+	// The node may be new, so the wait must not end with the caller's context.
+	if err := s.durable(context.WithoutCancel(ctx), seq); err != nil {
+		return nil, err
+	}
+	return &pb.EnsureNodeResponse{NodeId: uint64(id), Created: created}, nil
 }
 
 // Consume charges a quota to a node and its whole chain, or to nothing.
