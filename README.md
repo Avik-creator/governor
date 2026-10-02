@@ -39,6 +39,8 @@ org (root)                    limits here are the shared pools: db, http, agents
 - **Tenants are treated fairly.** Queued acquires are served by weighted deficit
   round robin across tenants, so a tenant with 10,000 waiters cannot starve one
   with 2.
+- **Limits can adapt.** A controller raises a pool's limit by one while its
+  downstream is healthy and cuts it to 70% when latency or overload rises.
 - **Postgres is the durable record.** Every change is committed before the caller
   gets its reply, in batches, and a restart rebuilds the tree by replaying it.
 
@@ -149,6 +151,7 @@ with no replication, and that traffic is not encrypted.
 | `cmd/governord` | The daemon: restore, reconcile tenants, serve |
 | `internal/core` | The in-memory engine: tree, quotas, leases, fair queue, restore |
 | `internal/server` | The gRPC service: authentication, error mapping, idempotent requests |
+| `internal/adaptive` | The controller that tunes a limit from reported latency and overload |
 | `internal/store` | Postgres: events with group commit, session token hashes (goose, goqu) |
 | `internal/config` | The YAML configuration |
 | `proto/governor/v1` | The gRPC contract; generated code is in `internal/gen` |
@@ -178,11 +181,14 @@ Measured on an Apple M1 with `go test -bench . ./internal/core`:
 ## Status
 
 Built and tested: the engine, the gRPC service, the Postgres store with restart,
-`governord`, and the SDK.
+`governord` with adaptive concurrency, and the SDK.
 
 Not built yet:
 
-- adaptive concurrency (the AIMD controller described in SPEC.md §7);
 - the `governor hook` command that governs Claude Code through its hooks (SPEC.md §10);
 - the benchmark that compares a workload with and without Governor;
 - snapshots, so restart time does not grow with history.
+
+## License
+
+MIT. See [LICENSE](LICENSE).
