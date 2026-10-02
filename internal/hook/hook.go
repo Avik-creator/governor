@@ -36,13 +36,13 @@ type Config struct {
 	// Source names the CLI, so runs of different tools never share a task.
 	Source string
 
-	// ToolCalls caps the tool calls of one run; zero sets no cap of its own.
+	// ToolCalls caps the tool calls of one run where the tenant has no default; zero sets no cap.
 	ToolCalls int64
 
-	// Agents caps the subagents one run may use; zero sets no cap of its own.
+	// Agents caps the subagents one run may use where the tenant has no default; zero sets no cap.
 	Agents int64
 
-	// AgentToolCalls caps the tool calls of each subagent; zero sets no cap of its own.
+	// AgentToolCalls caps the tool calls of each subagent where the run has no default; zero sets no cap.
 	AgentToolCalls int64
 
 	// TTL is how long after its first tool call a run is refused everything.

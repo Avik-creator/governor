@@ -57,10 +57,10 @@ func run(ctx context.Context, args []string, stdin io.Reader, stderr io.Writer, 
 	flags := flag.NewFlagSet("governor hook", flag.ContinueOnError)
 	flags.SetOutput(stderr)
 	flags.StringVar(&cfg.Source, "source", "agent", "name of the CLI being governed, such as claude or codex")
-	flags.Int64Var(&cfg.ToolCalls, "tool-calls", 0, "tool calls one run may make; 0 sets no cap of its own")
-	flags.Int64Var(&cfg.Agents, "agents", 0, "subagents one run may use; 0 sets no cap of its own")
+	flags.Int64Var(&cfg.ToolCalls, "tool-calls", 0, "tool calls one run may make, unless the tenant has a default; 0 sets no cap")
+	flags.Int64Var(&cfg.Agents, "agents", 0, "subagents one run may use, unless the tenant has a default; 0 sets no cap")
 	flags.Int64Var(&cfg.AgentToolCalls, "agent-tool-calls", 0,
-		"tool calls each subagent may make; 0 sets no cap of its own")
+		"tool calls each subagent may make, unless the tenant has a default; 0 sets no cap")
 	flags.DurationVar(&cfg.TTL, "ttl", 24*time.Hour, "how long after its first tool call a run is refused everything")
 	flags.DurationVar(&cfg.Timeout, "timeout", 5*time.Second, "how long to wait for governord before refusing")
 	if err := flags.Parse(args[1:]); err != nil {

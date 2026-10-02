@@ -253,9 +253,11 @@ attempt counts.
 
 ## 9. Durability and crashes
 
-`governord` keeps the tree in memory and uses Postgres as the durable record.
+`governord` keeps the tree in memory and uses a database as the durable record:
+Postgres, or a SQLite file when everything runs on one machine. The guarantees
+below are the same for both.
 
-- **Write before reply.** Every state change is committed to Postgres before the
+- **Write before reply.** Every state change is committed to the database before the
   caller receives its answer. Changes are batched into one transaction per flush.
 - **Idempotent requests.** A request that creates a node, consumes or acquires
   may carry a request id. The id is recorded with the change it caused, so
@@ -270,7 +272,7 @@ attempt counts.
   with the token and leases it had. Each session gets one fresh TTL to reconnect;
   sessions that do not heartbeat expire. A session with no stored token could
   never be used again, so it is closed at start.
-- **Fail closed.** While `governord` or Postgres is unreachable, clients deny new
+- **Fail closed.** While `governord` or its database is unreachable, clients deny new
   work. Work holding a lease stops when its session's local deadline passes.
 
 | Crash happens… | Outcome |
@@ -288,9 +290,12 @@ It handles one event, `PreToolUse`, and keeps no state between calls.
 On each tool call it:
 
 1. finds or creates the run's node, named `<cli>:<session_id>`, under the tenant;
-   the node gets its quotas and a deadline when it is first created;
+   the node gets its quotas and a deadline when it is first created. The quotas
+   are the tenant's defaults (§3.5); the hook's own flags only fill in what the
+   defaults do not name;
 2. inside a subagent, finds or creates the subagent's node under the run, which
-   costs the run one `agents` unit, charged in the same step as the creation;
+   costs the run one `agents` unit, charged in the same step as the creation. The
+   subagent's quotas are the run's defaults, which it got from the tenant's;
 3. consumes one `tool_calls` unit from that node.
 
 If any step is refused, the hook exits 2 and prints the reason for the model.
@@ -347,5 +352,6 @@ If any step is refused, the hook exits 2 and prints the reason for the model.
   already running cannot be interrupted. Codex does not run hooks for its hosted
   tools, such as web search.
 - **Hooks guard against accidents, not a hostile agent.** The agent's process can
-  read its own API key and can edit the hook configuration. It cannot raise its
-  budget, but it can remove the hook.
+  read its own API key and can edit the hook configuration. With the key it can
+  raise the budget of its own run, up to the tenant's caps, which the key cannot
+  change; and it can remove the hook.

@@ -41,14 +41,16 @@ org (root)                    limits here are the shared pools: db, http, agents
   with 2.
 - **Limits can adapt.** A controller raises a pool's limit by one while its
   downstream is healthy and cuts it to 70% when latency or overload rises.
-- **Postgres is the durable record.** Every change is committed before the caller
+- **Caps can be changed while work runs.** `governor ui` shows what every task has
+  used and edits its caps, and the defaults new tasks start with.
+- **Postgres or SQLite is the durable record.** Every change is committed before the caller
   gets its reply, in batches. A restart rebuilds the tree from the newest snapshot
   and the changes recorded after it, and a request retried across the restart is
   not applied twice.
 
 ## Quick start
 
-You need Go 1.26 or later. Postgres is optional: without it `governord` keeps
+You need Go 1.26 or later. A database is optional: without one `governord` keeps
 everything in memory.
 
 ```sh
@@ -64,8 +66,14 @@ export GOVERNOR_ADMIN_KEY=admin-secret TEAM_A_KEY=team-a-secret TEAM_B_KEY=team-
 go run ./cmd/governord -config governor.example.yaml
 ```
 
-`governor.example.yaml` declares the shared pools and one node per tenant. Set
-`GOVERNOR_DATABASE_URL` to an empty string to run without Postgres.
+`governor.example.yaml` declares the shared pools and one node per tenant.
+`GOVERNOR_DATABASE_URL` chooses where the record is kept:
+
+| Value | Record | Use it when |
+| --- | --- | --- |
+| `postgres://…` | Postgres | `governord` serves several machines |
+| `sqlite:/path/to/governor.db` | One file, no other process needed | everything runs on one machine |
+| empty | None; a restart forgets everything | trying it out, tests |
 
 ## Using the SDK
 
@@ -147,7 +155,7 @@ Claude Code, in `~/.claude/settings.json`:
         "hooks": [
           {
             "type": "command",
-            "command": "governor hook --source claude --tool-calls 500 --agents 10 --agent-tool-calls 100",
+            "command": "governor hook --source claude",
             "timeout": 10
           }
         ]
@@ -169,7 +177,7 @@ before it runs it:
         "hooks": [
           {
             "type": "command",
-            "command": "governor hook --source codex --tool-calls 500 --agents 10 --agent-tool-calls 100",
+            "command": "governor hook --source codex",
             "timeout": 10
           }
         ]
@@ -186,17 +194,28 @@ Governor blocked this tool: the tool_calls budget of "claude:4f2a" is spent (500
 Do not retry; stop and tell the user the budget is exhausted.
 ```
 
+A run is one session of the CLI. What each run may use comes from the tenant's
+`defaults` in `governor.yaml`: `quotas` is the budget of a run, and `children` is
+the budget of each subagent.
+
+```yaml
+tenants:
+  - name: team-a
+    api_key: ${TEAM_A_KEY}
+    defaults:
+      quotas: {tool_calls: 500, agents: 10}
+      children:
+        quotas: {tool_calls: 100}
+```
+
+The tenant's own `quotas` cap all runs together. If `governord` is not running,
+tools are blocked: the hook fails closed. The `matcher` decides which tools count.
+
 | Flag | Meaning | Default |
 | --- | --- | --- |
-| `--tool-calls` | Tool calls one run may make | no cap of its own |
-| `--agents` | Subagents one run may use | no cap of its own |
-| `--agent-tool-calls` | Tool calls each subagent may make | no cap of its own |
 | `--ttl` | How long after its first tool call a run is refused everything | 24h |
 | `--timeout` | How long to wait for `governord` before refusing | 5s |
-
-A run is one session of the CLI. The tenant's own quotas in `governor.yaml` cap all
-runs together. If `governord` is not running, tools are blocked: the hook fails
-closed. The `matcher` decides which tools count.
+| `--tool-calls`, `--agents`, `--agent-tool-calls` | Budgets used only where the tenant has no default | no cap |
 
 Resuming a session continues its run, because both CLIs give a resumed session the
 same id; forking one, or starting a new one, begins a new run. A session resumed
@@ -205,6 +224,43 @@ resuming a session.
 
 Checked with Claude Code 2.1.285 and Codex 0.151.0: in both, the first command ran
 and the second was refused with the budget message when the budget was one tool call.
+
+## Watching and changing budgets
+
+`governor ui` is a terminal screen over the same tree. It lists the runs of a
+tenant with what each has used, refreshed every second.
+
+```text
+Governor  127.0.0.1:7600                                           updated 22:35:50
+codex   agents 1/∞ · tool_calls 5/∞
+───────────────────────────────────────────────────────────────────────────────────
+  NAME           STATE   ENDS IN  CHILDREN  agents  tool_calls
+  claude:sess-B  active   23h58m         0     0/2         1/5
+▸ codex:sess-A   active   23h58m         1     1/2         4/8
+───────────────────────────────────────────────────────────────────────────────────
+New children start with: agents 2, tool_calls 5 · their children: tool_calls 2
+↑↓ move · enter open · esc back · e edit caps · d edit defaults · c cancel · q quit
+```
+
+| Key | What it does |
+| --- | --- |
+| `e` | Edit the caps of the selected run: raise a spent budget, lower one, or remove it |
+| `d` | Edit the defaults: what every new run, and every subagent, starts with |
+| `enter` | Open a run to see its subagents; `esc` goes back |
+| `c` | Cancel a run, after asking; every later tool call of that run is refused |
+
+```sh
+GOVERNOR_API_KEY=team-a-secret governor ui     # one tenant's runs
+governor ui -config governor.yaml              # on the machine governord runs on
+```
+
+With `-config` the screen takes the address and the admin key from governord's own
+file, and then starts at the root, one level above the tenants.
+
+A change takes effect at the next tool call and is part of the durable record. A
+tenant's key can change everything under the tenant but not the tenant's own caps;
+the admin key can change those too. Defaults set here take the place of the ones
+in `governor.yaml`, which only seed a tenant that has none on record.
 
 ## Benchmark
 
@@ -285,22 +341,23 @@ with no replication, and that traffic is not encrypted.
 | --- | --- |
 | `*.go` (root) | The Go SDK, package `governor` |
 | `cmd/governord` | The daemon: restore, reconcile tenants, serve |
-| `cmd/governor` | The command-line client: `governor hook` |
+| `cmd/governor` | The command-line client: `governor hook` and `governor ui` |
 | `cmd/govbench` | The benchmark |
 | `internal/daemon` | governord's startup, importable so the benchmark can restart it |
 | `internal/bench` | The benchmark's scenarios and simulated downstream |
 | `internal/hook` | The hook's logic for Claude Code and Codex |
+| `internal/tui` | The terminal screen of `governor ui` (Bubble Tea) |
 | `internal/core` | The in-memory engine: tree, quotas, leases, fair queue, restore |
 | `internal/server` | The gRPC service: authentication, error mapping, idempotent requests |
 | `internal/adaptive` | The controller that tunes a limit from reported latency and overload |
-| `internal/store` | Postgres: events with group commit, session token hashes (goose, goqu) |
+| `internal/store` | Postgres or SQLite: events with group commit, snapshots, session token hashes (goose, goqu) |
 | `internal/config` | The YAML configuration |
 | `proto/governor/v1` | The gRPC contract; generated code is in `internal/gen` |
 
 ## Development
 
 ```sh
-go test ./...                    # everything that needs no database
+go test ./...                    # everything that needs no Postgres; the store runs on SQLite
 go test -race ./...              # the same, with the race detector
 
 # Tests that need Postgres empty their tables, so use a throwaway database
@@ -321,9 +378,9 @@ Measured on an Apple M1 with `go test -bench . ./internal/core`:
 
 ## Status
 
-Built and tested: the engine, the gRPC service, the Postgres store with snapshots
-and restart, `governord` with adaptive concurrency, the SDK, the hook for Claude
-Code and Codex, and the benchmark.
+Built and tested: the engine, the gRPC service, the Postgres and SQLite store with
+snapshots and restart, `governord` with adaptive concurrency, the SDK, the hook for
+Claude Code and Codex, the terminal screen, and the benchmark.
 
 Known limits:
 
