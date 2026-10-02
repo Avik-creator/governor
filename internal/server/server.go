@@ -26,6 +26,7 @@ type Server struct {
 
 	mu     sync.Mutex
 	tokens map[digest]core.SessionID
+	seen   dedup // outcomes of requests that carried a request id
 
 	closed    chan struct{} // stops the goroutines that wait for sessions to end
 	closeOnce sync.Once
@@ -79,27 +80,33 @@ func (s *Server) CreateNode(ctx context.Context, req *pb.CreateNodeRequest) (*pb
 	if err != nil {
 		return nil, err
 	}
-	id, seq, err := s.engine.CreateNode(sessionFrom(ctx), core.NodeID(req.GetParentId()), spec)
-	if err != nil {
-		return nil, err
-	}
-	if err := s.durable(ctx, seq); err != nil {
-		return nil, err
-	}
-	return &pb.CreateNodeResponse{NodeId: uint64(id)}, nil
+	return once(ctx, s, req.GetRequestId(), req, func() (*pb.CreateNodeResponse, error) {
+		id, seq, err := s.engine.CreateNode(sessionFrom(ctx), core.NodeID(req.GetParentId()), spec)
+		if err != nil {
+			return nil, err
+		}
+		// The node exists now, so the wait must not end with the caller's context.
+		if err := s.durable(context.WithoutCancel(ctx), seq); err != nil {
+			return nil, err
+		}
+		return &pb.CreateNodeResponse{NodeId: uint64(id)}, nil
+	})
 }
 
 // Consume charges a quota to a node and its whole chain, or to nothing.
 func (s *Server) Consume(ctx context.Context, req *pb.ConsumeRequest) (*pb.ConsumeResponse, error) {
 	node, resource := core.NodeID(req.GetNodeId()), core.Resource(req.GetResource())
-	seq, err := s.engine.Consume(sessionFrom(ctx), node, resource, req.GetAmount())
-	if err != nil {
-		return nil, err
-	}
-	if err := s.durable(ctx, seq); err != nil {
-		return nil, err
-	}
-	return &pb.ConsumeResponse{}, nil
+	return once(ctx, s, req.GetRequestId(), req, func() (*pb.ConsumeResponse, error) {
+		seq, err := s.engine.Consume(sessionFrom(ctx), node, resource, req.GetAmount())
+		if err != nil {
+			return nil, err
+		}
+		// The charge is applied now, so the wait must not end with the caller's context.
+		if err := s.durable(context.WithoutCancel(ctx), seq); err != nil {
+			return nil, err
+		}
+		return &pb.ConsumeResponse{}, nil
+	})
 }
 
 // CancelNode ends a node and its subtree as cancelled.
@@ -205,16 +212,18 @@ func (s *Server) Acquire(ctx context.Context, req *pb.AcquireRequest) (*pb.Acqui
 		return nil, err
 	}
 	sid, node, class := sessionFrom(ctx), core.NodeID(req.GetNodeId()), core.Class(req.GetClass())
-	lease, seq, err := s.engine.Acquire(ctx, sid, node, class, core.AcquireOptions{MaxHold: hold})
-	if err != nil {
-		return nil, err
-	}
-	if err := s.durable(ctx, seq); err != nil {
-		// The caller will never learn of this lease, so hand it back.
-		_, _ = s.engine.Release(sid, lease, core.Report{})
-		return nil, err
-	}
-	return &pb.AcquireResponse{LeaseId: uint64(lease)}, nil
+	return once(ctx, s, req.GetRequestId(), req, func() (*pb.AcquireResponse, error) {
+		lease, seq, err := s.engine.Acquire(ctx, sid, node, class, core.AcquireOptions{MaxHold: hold})
+		if err != nil {
+			return nil, err
+		}
+		if err := s.durable(ctx, seq); err != nil {
+			// The caller will never learn of this lease, so hand it back.
+			_, _ = s.engine.Release(sid, lease, core.Report{})
+			return nil, err
+		}
+		return &pb.AcquireResponse{LeaseId: uint64(lease)}, nil
+	})
 }
 
 // Release returns a lease and reports how the guarded work went.

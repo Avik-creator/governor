@@ -59,6 +59,7 @@ func (s *Server) issue(token string, sid core.SessionID) {
 			s.mu.Lock()
 			delete(s.tokens, key)
 			s.mu.Unlock()
+			s.seen.forget(sid)
 		case <-s.closed:
 		}
 	})
