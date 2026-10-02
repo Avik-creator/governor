@@ -29,7 +29,7 @@ func openStore(t *testing.T, fresh bool) *Store {
 	}
 	t.Cleanup(func() { _ = s.Close() })
 	if fresh {
-		if _, err := s.db.Truncate(eventsTable, tokensTable).Executor().ExecContext(t.Context()); err != nil {
+		if _, err := s.db.Truncate(eventsTable, tokensTable, snapshotTable).Executor().ExecContext(t.Context()); err != nil {
 			t.Fatalf("truncate: %v", err)
 		}
 		s.mu.Lock()
@@ -88,7 +88,7 @@ func TestRestartRestoresEngine(t *testing.T) {
 	if got := s.LastSeq(); got != seq {
 		t.Fatalf("LastSeq after reopening = %d, want %d", got, seq)
 	}
-	r, err := core.Restore(core.Config{Clock: clock, Sink: s}, s.Events(t.Context()))
+	r, err := core.Restore(core.Config{Clock: clock, Sink: s}, nil, s.Events(t.Context()))
 	if err != nil {
 		t.Fatalf("Restore: %v", err)
 	}
@@ -236,5 +236,86 @@ func TestTokens(t *testing.T) {
 	}
 	if got, _ := s.LoadTokens(ctx); len(got) != 1 || got[second] != 9 {
 		t.Errorf("LoadTokens after a delete = %v, want only the second token", got)
+	}
+}
+
+func TestSnapshot(t *testing.T) {
+	s := openStore(t, true)
+	ctx := t.Context()
+	if snap, err := s.LoadSnapshot(ctx); err != nil || snap != nil {
+		t.Fatalf("LoadSnapshot on an empty database = %v, %v, want nil", snap, err)
+	}
+	clock := core.NewManualClock(time.Unix(1_700_000_000, 0))
+	e, err := core.New(core.Config{Clock: clock, Sink: s, Root: core.Spec{Limits: map[core.Class]int{"db": 1}}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	admin, _, _, _ := e.OpenSession(core.RootID, 0)
+	tenant, _, _ := e.CreateNode(admin, core.RootID, core.Spec{Name: "tenant", Quotas: map[core.Resource]int64{"http": 10}})
+	if _, err := e.Consume(admin, tenant, "http", 6); err != nil {
+		t.Fatalf("Consume: %v", err)
+	}
+	lease, _, err := e.Acquire(ctx, admin, tenant, "db", core.AcquireOptions{})
+	if err != nil {
+		t.Fatalf("Acquire: %v", err)
+	}
+
+	// The snapshot replaces every event up to it, and later events are kept.
+	snap := e.Snapshot()
+	if err := s.SaveSnapshot(ctx, snap); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	if events, _ := count(t, s); events != 0 {
+		t.Errorf("%d events remain after the snapshot, want 0", events)
+	}
+	seq, err := e.Consume(admin, tenant, "http", 1)
+	if err != nil {
+		t.Fatalf("Consume: %v", err)
+	}
+	durable(t, s, seq)
+	if events, _ := count(t, s); events != 1 {
+		t.Errorf("%d events stored after the snapshot, want 1", events)
+	}
+	// A second snapshot replaces the first.
+	if err := s.SaveSnapshot(ctx, e.Snapshot()); err != nil {
+		t.Fatalf("second SaveSnapshot: %v", err)
+	}
+	seq, err = e.Consume(admin, tenant, "http", 2)
+	if err != nil {
+		t.Fatalf("Consume: %v", err)
+	}
+	durable(t, s, seq)
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+
+	s = openStore(t, false)
+	if got := s.LastSeq(); got != seq {
+		t.Fatalf("LastSeq after reopening = %d, want %d", got, seq)
+	}
+	loaded, err := s.LoadSnapshot(ctx)
+	if err != nil || loaded == nil || loaded.Seq != seq-1 {
+		t.Fatalf("LoadSnapshot = %+v, %v, want the snapshot at event %d", loaded, err, seq-1)
+	}
+	r, err := core.Restore(core.Config{Clock: clock, Sink: s}, loaded, s.Events(ctx))
+	if err != nil {
+		t.Fatalf("Restore: %v", err)
+	}
+	_, err = r.Consume(admin, tenant, "http", 2)
+	if d, ok := errors.AsType[*core.DeniedError](err); !ok || d.Used != 9 {
+		t.Errorf("Consume = %v, want a denial at 9 used", err)
+	}
+	if err := r.Validate(lease); err != nil {
+		t.Errorf("Validate(lease from before the snapshot): %v", err)
+	}
+	// With nothing but a snapshot on record, the store still knows where the record ends.
+	if err := s.SaveSnapshot(ctx, r.Snapshot()); err != nil {
+		t.Fatalf("SaveSnapshot: %v", err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatalf("Close: %v", err)
+	}
+	if s = openStore(t, false); s.LastSeq() != seq {
+		t.Errorf("LastSeq with only a snapshot = %d, want %d", s.LastSeq(), seq)
 	}
 }

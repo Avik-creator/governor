@@ -92,12 +92,14 @@ func (s *Store) init(ctx context.Context) error {
 	if _, err := provider.Up(ctx); err != nil {
 		return fmt.Errorf("store: migrate: %w", err)
 	}
-	var last sql.NullInt64
-	query := s.db.From(eventsTable).Select(goqu.MAX("seq"))
-	if _, err := query.ScanValContext(ctx, &last); err != nil {
-		return fmt.Errorf("store: read last seq: %w", err)
+	// The record ends at the newest event, or at the snapshot if no event follows it.
+	for _, table := range []string{eventsTable, snapshotTable} {
+		var last sql.NullInt64
+		if _, err := s.db.From(table).Select(goqu.MAX("seq")).ScanValContext(ctx, &last); err != nil {
+			return fmt.Errorf("store: read last seq: %w", err)
+		}
+		s.durable = max(s.durable, uint64(last.Int64))
 	}
-	s.durable = uint64(last.Int64)
 	return nil
 }
 
