@@ -10,8 +10,9 @@ type session struct {
 	id      SessionID
 	scope   *node         // the session may only act in this node's subtree
 	ttl     time.Duration // zero never expires
-	expires time.Time
+	expires time.Time     // zero when the session never expires
 	leases  map[LeaseID]*lease
+	done    chan struct{} // closed when the session ends; created on demand
 }
 
 // covers reports whether n is the session's scope or lies beneath it.
@@ -46,16 +47,16 @@ type tomb struct {
 	at  time.Time
 }
 
-// OpenSession opens a session confined to scope's subtree; ttl 0 never expires.
-func (e *Engine) OpenSession(scope NodeID, ttl time.Duration) (SessionID, uint64, error) {
+// OpenSession opens a session confined to scope's subtree and returns its expiry.
+func (e *Engine) OpenSession(scope NodeID, ttl time.Duration) (SessionID, time.Time, uint64, error) {
 	if ttl < 0 {
-		return 0, 0, fmt.Errorf("%w: ttl is negative", ErrInvalid)
+		return 0, time.Time{}, 0, fmt.Errorf("%w: ttl is negative", ErrInvalid)
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
 	n, err := e.activeNode(scope)
 	if err != nil {
-		return 0, 0, err
+		return 0, time.Time{}, 0, err
 	}
 	s := &session{
 		id:     SessionID(e.nextID()),
@@ -68,7 +69,7 @@ func (e *Engine) OpenSession(scope NodeID, ttl time.Duration) (SessionID, uint64
 	}
 	e.sessions[s.id] = s
 	e.emit(Event{Kind: EventSessionOpened, Node: n.id, Session: s.id, Expires: s.expires})
-	return s.id, e.seq, nil
+	return s.id, s.expires, e.seq, nil
 }
 
 // Heartbeat renews a session and all its leases, returning the new expiry.
@@ -83,6 +84,22 @@ func (e *Engine) Heartbeat(sid SessionID) (time.Time, error) {
 		s.expires = e.clock.Now().Add(s.ttl)
 	}
 	return s.expires, nil
+}
+
+// SessionDone returns a channel that is closed once the session has ended.
+func (e *Engine) SessionDone(sid SessionID) <-chan struct{} {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s, err := e.liveSession(sid)
+	if err != nil {
+		ch := make(chan struct{})
+		close(ch)
+		return ch
+	}
+	if s.done == nil {
+		s.done = make(chan struct{})
+	}
+	return s.done
 }
 
 // CloseSession ends a session and releases every lease it holds.
@@ -116,6 +133,9 @@ func (e *Engine) endSession(s *session, why LeaseEnd) {
 		e.endLease(l, why)
 	}
 	delete(e.sessions, s.id)
+	if s.done != nil {
+		close(s.done)
+	}
 	e.emit(Event{Kind: EventSessionEnded, Session: s.id})
 	e.failWaiters(func(w *waiter) error {
 		if w.s == s {

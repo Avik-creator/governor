@@ -281,8 +281,8 @@ func (e *Engine) CreateNode(sid SessionID, parent NodeID, spec Spec) (NodeID, ui
 
 // Consume charges amount of r to the node and its whole chain, or to nothing.
 func (e *Engine) Consume(sid SessionID, id NodeID, r Resource, amount int64) (uint64, error) {
-	if amount <= 0 {
-		return 0, fmt.Errorf("%w: amount must be positive", ErrInvalid)
+	if r == "" || amount <= 0 {
+		return 0, fmt.Errorf("%w: bad resource or amount", ErrInvalid)
 	}
 	e.mu.Lock()
 	defer e.mu.Unlock()
