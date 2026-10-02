@@ -76,6 +76,7 @@ type Store struct {
 	db         *goqu.Database
 	migrations string // directory of the backend's migrations
 	dialect    goose.Dialect
+	observe    func(events int, took time.Duration) // told of every commit; nil tells no one
 
 	mu      sync.Mutex
 	pending []core.Event  // emitted but not yet taken by the writer
@@ -90,8 +91,16 @@ type Store struct {
 	once   sync.Once
 }
 
+// Option adjusts a Store as it is opened.
+type Option func(*Store)
+
+// WithCommitObserver has fn told how many events each commit recorded and how long it took.
+func WithCommitObserver(fn func(events int, took time.Duration)) Option {
+	return func(s *Store) { s.observe = fn }
+}
+
 // Open connects to the database a URL names, applies the migrations and starts the writer.
-func Open(ctx context.Context, dsn string) (*Store, error) {
+func Open(ctx context.Context, dsn string, opts ...Option) (*Store, error) {
 	b, dsn := resolve(dsn)
 	sqlDB, err := sql.Open(b.driver, dsn)
 	if err != nil {
@@ -107,6 +116,9 @@ func Open(ctx context.Context, dsn string) (*Store, error) {
 		stop:       make(chan struct{}),
 		done:       make(chan struct{}),
 		failed:     make(chan struct{}),
+	}
+	for _, opt := range opts {
+		opt(s)
 	}
 	if err := s.init(ctx); err != nil {
 		_ = sqlDB.Close()
@@ -240,7 +252,11 @@ func (s *Store) run() {
 		s.pending = nil
 		s.mu.Unlock()
 
+		start := time.Now()
 		err := s.write(batch)
+		if err == nil && len(batch) > 0 && s.observe != nil {
+			s.observe(len(batch), time.Since(start))
+		}
 		s.mu.Lock()
 		switch {
 		case err != nil:

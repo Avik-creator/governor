@@ -8,6 +8,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -189,6 +190,42 @@ func TestGroupCommit(t *testing.T) {
 			t.Errorf("%d events took %d transactions, want batching", events, n)
 		}
 	})
+}
+
+func TestCommitObserver(t *testing.T) {
+	var commits, events atomic.Int64
+	observe := func(n int, took time.Duration) {
+		if n <= 0 || took <= 0 {
+			t.Errorf("observed a commit of %d events in %v", n, took)
+		}
+		commits.Add(1)
+		events.Add(int64(n))
+	}
+	dsn := SQLiteScheme + filepath.Join(t.TempDir(), "governor.db")
+	s, err := Open(t.Context(), dsn, WithCommitObserver(observe))
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	t.Cleanup(func() { _ = s.Close() })
+	e, err := core.New(core.Config{Sink: s})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	admin, _, _, _ := e.OpenSession(core.RootID, 0)
+	for range 5 {
+		seq, err := e.Consume(admin, core.RootID, "http", 1)
+		if err != nil {
+			t.Fatalf("Consume: %v", err)
+		}
+		durable(t, s, seq)
+	}
+	// Every event was reported once, however the writer grouped them.
+	if got := events.Load(); got != 7 {
+		t.Errorf("observed %d events, want 7", got)
+	}
+	if got := commits.Load(); got < 1 || got > 7 {
+		t.Errorf("observed %d commits, want between 1 and 7", got)
+	}
 }
 
 func TestWriteFailureIsFatal(t *testing.T) {
