@@ -19,6 +19,7 @@ type auditor struct {
 	seq       uint64
 	lastLease LeaseID
 	ends      map[LeaseID]int // how many times each granted lease has ended
+	events    []Event         // everything emitted, for replaying into Restore
 }
 
 // Emit runs under the engine lock, so it may read engine state directly.
@@ -27,6 +28,7 @@ func (a *auditor) Emit(ev Event) {
 		a.t.Errorf("event seq %d follows %d", ev.Seq, a.seq)
 	}
 	a.seq = ev.Seq
+	a.events = append(a.events, ev)
 	switch ev.Kind {
 	case EventLeaseGranted:
 		if ev.Lease <= a.lastLease {
@@ -522,11 +524,21 @@ func TestRandomOperations(t *testing.T) {
 				t.Fatalf("seed %d failed at step %d", seed, i)
 			}
 		}
+		f.restore()
 		f.drain()
+		f.restore()
 		if t.Failed() {
-			t.Fatalf("seed %d failed while draining", seed)
+			t.Fatalf("seed %d failed while draining or restoring", seed)
 		}
 	}
+}
+
+// restore replays every event so far and checks the result against the engine.
+func (f *fuzzer) restore() {
+	f.t.Helper()
+	r := mustRestore(f.t, f.clock, f.audit.events)
+	sameState(f.t, f.e, r)
+	checkInvariants(f.t, r, map[NodeID]State{})
 }
 
 // benchEngine returns an engine and a task under a tenant, reaped in the background.
