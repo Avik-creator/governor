@@ -88,6 +88,17 @@ func (e *Engine) Heartbeat(sid SessionID) (time.Time, error) {
 	return s.expires, nil
 }
 
+// Scope returns the node a live session is confined to.
+func (e *Engine) Scope(sid SessionID) (NodeID, error) {
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	s, err := e.liveSession(sid)
+	if err != nil {
+		return 0, err
+	}
+	return s.scope.id, nil
+}
+
 // Sessions returns the ids of every session, in no particular order.
 func (e *Engine) Sessions() []SessionID {
 	e.mu.Lock()

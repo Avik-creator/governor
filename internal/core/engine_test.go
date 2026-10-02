@@ -470,6 +470,97 @@ func TestSessionScope(t *testing.T) {
 	}
 }
 
+func TestEnsureNode(t *testing.T) {
+	clock := NewManualClock(time.Unix(1_700_000_000, 0))
+	e, err := New(Config{Clock: clock, Sink: &recorder{}})
+	if err != nil {
+		t.Fatalf("New: %v", err)
+	}
+	admin := mustSession(t, e, RootID, 0)
+	tenant := mustNode(t, e, admin, RootID, Spec{Name: "tenant", Quotas: map[Resource]int64{"agents": 2}})
+	ensure := func(name string, r Resource, amount int64) (NodeID, bool, error) {
+		id, created, _, err := e.EnsureNode(admin, tenant, Spec{Name: name}, r, amount)
+		return id, created, err
+	}
+
+	first, created, err := ensure("run-1", "", 0)
+	if err != nil || !created {
+		t.Fatalf("EnsureNode = %d, %t, %v, want a new node", first, created, err)
+	}
+	if again, created, err := ensure("run-1", "", 0); err != nil || created || again != first {
+		t.Errorf("second EnsureNode = %d, %t, %v, want the same node %d", again, created, err, first)
+	}
+	// Other names, and the same name under another parent, are separate nodes.
+	if other, created, _ := ensure("run-2", "", 0); !created || other == first {
+		t.Errorf("EnsureNode for another name = %d, %t, want a new node", other, created)
+	}
+	if id, created, _, err := e.EnsureNode(admin, RootID, Spec{Name: "run-1"}, "", 0); err != nil || !created || id == first {
+		t.Errorf("EnsureNode under another parent = %d, %t, %v, want a new node", id, created, err)
+	}
+
+	// An ended node is still the answer, so a cancel is not undone by asking again.
+	if _, err := e.Cancel(admin, first); err != nil {
+		t.Fatalf("Cancel: %v", err)
+	}
+	if again, created, err := ensure("run-1", "", 0); err != nil || created || again != first {
+		t.Errorf("EnsureNode after a cancel = %d, %t, %v, want the ended node %d", again, created, err, first)
+	}
+	mustState(t, e, first, StateCancelled)
+
+	// Creating with a charge takes the charge and the node together, or neither.
+	for _, name := range []string{"agent-1", "agent-2"} {
+		if _, created, err := ensure(name, "agents", 1); err != nil || !created {
+			t.Fatalf("EnsureNode(%s) with a charge = %t, %v", name, created, err)
+		}
+	}
+	if _, _, err := ensure("agent-1", "agents", 1); err != nil {
+		t.Errorf("EnsureNode for an existing node = %v, want no second charge", err)
+	}
+	before, _ := e.Children(admin, tenant)
+	for range 3 {
+		if _, _, err := ensure("agent-3", "agents", 1); !errors.Is(err, ErrDenied) {
+			t.Fatalf("EnsureNode past the quota = %v, want ErrDenied", err)
+		}
+	}
+	if after, _ := e.Children(admin, tenant); len(after) != len(before) {
+		t.Errorf("denied EnsureNode calls left %d nodes behind", len(after)-len(before))
+	}
+	if got := used(e, tenant, "agents"); got != 2 {
+		t.Errorf("agents used = %d, want 2", got)
+	}
+
+	scoped := mustSession(t, e, tenant, 0)
+	// A restart rebuilds the name index, so the same names still find the same nodes.
+	r := mustRestore(t, clock, e.sink.(*recorder).events)
+	if again, created, _, err := r.EnsureNode(admin, tenant, Spec{Name: "run-1"}, "", 0); err != nil || created || again != first {
+		t.Errorf("EnsureNode after a restart = %d, %t, %v, want the node %d", again, created, err, first)
+	}
+
+	rejects := []struct {
+		name   string
+		sid    SessionID
+		parent NodeID
+		spec   Spec
+		r      Resource
+		amount int64
+		want   error
+	}{
+		{"no name", admin, tenant, Spec{}, "", 0, ErrInvalid},
+		{"charge without a resource", admin, tenant, Spec{Name: "x"}, "", 1, ErrInvalid},
+		{"negative charge", admin, tenant, Spec{Name: "x"}, "agents", -1, ErrInvalid},
+		{"outside the scope", scoped, RootID, Spec{Name: "x"}, "", 0, ErrForbidden},
+		{"unknown parent", admin, 9999, Spec{Name: "x"}, "", 0, ErrUnknownNode},
+		{"under an ended parent", admin, first, Spec{Name: "x"}, "", 0, ErrClosed},
+	}
+	for _, tc := range rejects {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, _, _, err := e.EnsureNode(tc.sid, tc.parent, tc.spec, tc.r, tc.amount); !errors.Is(err, tc.want) {
+				t.Errorf("EnsureNode = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
 func TestChildren(t *testing.T) {
 	e, admin, _ := newEngine(t, Spec{})
 	a := mustNode(t, e, admin, RootID, Spec{Name: "a"})
@@ -491,6 +582,12 @@ func TestChildren(t *testing.T) {
 		t.Errorf("Children of a leaf = %v, want none", got)
 	}
 	scoped := mustSession(t, e, a, 0)
+	if scope, err := e.Scope(scoped); err != nil || scope != a {
+		t.Errorf("Scope = %d, %v, want %d", scope, err, a)
+	}
+	if _, err := e.Scope(9999); !errors.Is(err, ErrSessionExpired) {
+		t.Errorf("Scope(unknown session) = %v, want ErrSessionExpired", err)
+	}
 	if _, err := e.Children(scoped, RootID); !errors.Is(err, ErrForbidden) {
 		t.Errorf("Children outside the scope = %v, want ErrForbidden", err)
 	}

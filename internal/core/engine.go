@@ -58,6 +58,7 @@ type node struct {
 	parent   *node
 	tenant   *node // ancestor at depth 1, or the node itself at depth 0 or 1
 	children map[NodeID]*node
+	named    map[string]*node // newest child with each name, for EnsureNode
 	depth    int
 	weight   int
 	priority int
@@ -169,6 +170,7 @@ func (e *Engine) addNode(id NodeID, parent *node, spec Spec) *node {
 		name:     spec.Name,
 		parent:   parent,
 		children: make(map[NodeID]*node),
+		named:    make(map[string]*node),
 		weight:   max(spec.Weight, DefaultWeight),
 		priority: spec.Priority,
 		quota:    maps.Clone(spec.Quotas),
@@ -191,6 +193,7 @@ func (e *Engine) addNode(id NodeID, parent *node, spec Spec) *node {
 			n.tenant = parent.tenant
 		}
 		parent.children[id] = n
+		parent.named[n.name] = n
 		if n.deadline.IsZero() || parent.deadlinePassed(n.deadline) {
 			n.deadline = parent.deadline
 		}
@@ -287,6 +290,58 @@ func (e *Engine) CreateNode(sid SessionID, parent NodeID, spec Spec) (NodeID, ui
 	return n.id, e.seq, nil
 }
 
+// EnsureNode returns parent's newest child named spec.Name, ended or not, creating it if there is none.
+func (e *Engine) EnsureNode(
+	sid SessionID, parent NodeID, spec Spec, r Resource, amount int64,
+) (NodeID, bool, uint64, error) {
+	if err := spec.validate(); err != nil {
+		return 0, false, 0, err
+	}
+	if spec.Name == "" || amount < 0 || (amount > 0 && r == "") {
+		return 0, false, 0, fmt.Errorf("%w: a name is required, and a charge needs a resource", ErrInvalid)
+	}
+	spec = spec.clone()
+	e.mu.Lock()
+	defer e.mu.Unlock()
+	_, p, err := e.target(sid, parent)
+	if err != nil {
+		return 0, false, 0, err
+	}
+	// An ended child is returned too, so cancelling it is not undone by asking again.
+	if n := p.named[spec.Name]; n != nil {
+		return n.id, false, e.seq, nil
+	}
+	if err := e.admit(p); err != nil {
+		return 0, false, 0, err
+	}
+	if p.depth >= MaxDepth {
+		return 0, false, 0, fmt.Errorf("%w: tree is deeper than %d", ErrInvalid, MaxDepth)
+	}
+	// The charge and the creation happen together, or neither does.
+	if amount > 0 {
+		if err := p.check(r, amount); err != nil {
+			return 0, false, 0, err
+		}
+	}
+	n := e.addNode(NodeID(e.nextID()), p, spec)
+	e.emit(Event{Kind: EventNodeCreated, Node: n.id, Parent: p.id, Spec: &spec})
+	if amount > 0 {
+		p.charge(r, amount)
+		e.emit(Event{Kind: EventConsumed, Node: p.id, Session: sid, Resource: r, Amount: amount})
+	}
+	return n.id, true, e.seq, nil
+}
+
+// check reports the denial if amount more of r would not fit on n's whole chain.
+func (n *node) check(r Resource, amount int64) error {
+	for a := n; a != nil; a = a.parent {
+		if limit, ok := a.quota[r]; ok && amount > limit-a.used[r] {
+			return a.denied(r, amount, limit)
+		}
+	}
+	return nil
+}
+
 // Consume charges amount of r to the node and its whole chain, or to nothing.
 func (e *Engine) Consume(sid SessionID, id NodeID, r Resource, amount int64) (uint64, error) {
 	if r == "" || amount <= 0 {
@@ -298,10 +353,8 @@ func (e *Engine) Consume(sid SessionID, id NodeID, r Resource, amount int64) (ui
 	if err != nil {
 		return 0, err
 	}
-	for a := n; a != nil; a = a.parent {
-		if limit, ok := a.quota[r]; ok && amount > limit-a.used[r] {
-			return 0, a.denied(r, amount, limit)
-		}
+	if err := n.check(r, amount); err != nil {
+		return 0, err
 	}
 	n.charge(r, amount)
 	e.emit(Event{Kind: EventConsumed, Node: n.id, Session: sid, Resource: r, Amount: amount})

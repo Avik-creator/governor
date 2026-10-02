@@ -84,6 +84,11 @@ func sameState(t *testing.T, want, got *Engine) {
 		if !same {
 			t.Fatalf("node %d differs:\n got %+v\nwant %+v", id, *g, *w)
 		}
+		for name, child := range w.named {
+			if nodeID(g.named[name]) != child.id {
+				t.Fatalf("node %d has newest child %d named %q, want %d", id, nodeID(g.named[name]), name, child.id)
+			}
+		}
 		for r, top := range w.top {
 			if nodeID(g.top[r]) != top.id {
 				t.Fatalf("node %d has top consumer %d for %s, want %d", id, nodeID(g.top[r]), r, top.id)

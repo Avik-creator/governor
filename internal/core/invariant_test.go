@@ -3,6 +3,7 @@ package core
 import (
 	"context"
 	"errors"
+	"fmt"
 	"maps"
 	"math/rand"
 	"runtime"
@@ -306,8 +307,10 @@ func (f *fuzzer) endNode(end func(*Engine, SessionID, NodeID) (uint64, error)) {
 // step performs one random operation.
 func (f *fuzzer) step() {
 	switch op := f.rng.Intn(100); {
-	case op < 12:
+	case op < 9:
 		f.createNode()
+	case op < 12:
+		f.ensureNode()
 	case op < 37:
 		f.consume()
 	case op < 42:
@@ -361,6 +364,34 @@ func (f *fuzzer) createNode() {
 	if err == nil {
 		f.nodes = append(f.nodes, id)
 		f.parent[id] = parent
+	}
+}
+
+// ensureNode finds or creates a named child, sometimes charging its parent for it.
+func (f *fuzzer) ensureNode() {
+	if len(f.nodes) >= 150 {
+		return
+	}
+	sid := f.actor()
+	parent, before := f.target(sid), f.audit.seq
+	spec := Spec{Name: fmt.Sprint("named-", f.rng.Intn(4))}
+	amount := int64(f.rng.Intn(4))
+	id, created, _, err := f.e.EnsureNode(sid, parent, spec, "http", amount)
+	f.checkScope(sid, parent, before, err)
+	if err != nil || !created {
+		// Finding a node, or being denied one, must leave no trace.
+		if !errors.Is(err, ErrSessionExpired) && !errors.Is(err, ErrClosed) && f.audit.seq != before {
+			f.t.Fatalf("EnsureNode changed state without creating a node: %v", err)
+		}
+		return
+	}
+	f.nodes = append(f.nodes, id)
+	f.parent[id] = parent
+	if amount > 0 {
+		if f.consumed[parent] == nil {
+			f.consumed[parent] = make(map[Resource]int64)
+		}
+		f.consumed[parent]["http"] += amount
 	}
 }
 
