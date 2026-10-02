@@ -40,6 +40,9 @@ var (
 	// ErrUnavailable reports that governord could not be reached or could not commit.
 	ErrUnavailable = errors.New("governor: unavailable")
 
+	// ErrNoTask reports a context that carries no task to charge the work to.
+	ErrNoTask = errors.New("governor: context carries no task")
+
 	// ErrClientClosed reports use of a Client after Close.
 	ErrClientClosed = errors.New("governor: client closed")
 )
