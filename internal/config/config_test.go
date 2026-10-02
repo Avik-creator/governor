@@ -13,6 +13,9 @@ import (
 
 const full = `
 listen: 0.0.0.0:9000
+tls:
+  cert_file: /etc/governor/server.crt
+  key_file: /etc/governor/server.key
 database_url: ${TEST_DATABASE_URL}
 reap_interval: 250ms
 admin_key: ${TEST_ADMIN_KEY}
@@ -53,6 +56,9 @@ func TestParse(t *testing.T) {
 	if cfg.Listen != "0.0.0.0:9000" || cfg.ReapInterval != 250*time.Millisecond {
 		t.Errorf("listen, reap_interval = %q, %v", cfg.Listen, cfg.ReapInterval)
 	}
+	if cfg.TLS == nil || cfg.TLS.CertFile != "/etc/governor/server.crt" || cfg.TLS.KeyFile != "/etc/governor/server.key" {
+		t.Errorf("tls = %+v", cfg.TLS)
+	}
 	if cfg.DatabaseURL != "postgres://localhost/governor" || cfg.AdminKey != "admin-secret" {
 		t.Errorf("database_url, admin_key = %q, %q", cfg.DatabaseURL, cfg.AdminKey)
 	}
@@ -91,6 +97,9 @@ func TestParseDefaults(t *testing.T) {
 	if cfg.Listen != DefaultListen || cfg.ReapInterval != DefaultReapInterval {
 		t.Errorf("listen, reap_interval = %q, %v, want the defaults", cfg.Listen, cfg.ReapInterval)
 	}
+	if cfg.TLS != nil || cfg.AllowPlaintext {
+		t.Errorf("tls, allow_plaintext = %+v, %v, want neither", cfg.TLS, cfg.AllowPlaintext)
+	}
 	if cfg.DatabaseURL != "" || cfg.AdminKey != "" || len(cfg.Tenants) != 0 {
 		t.Errorf("an empty file set %+v", cfg)
 	}
@@ -107,6 +116,12 @@ func TestParseRejects(t *testing.T) {
 		{"unknown field", "listn: :1", "listn"},
 		{"malformed yaml", "tenants: [", "yaml"},
 		{"empty listen", `listen: ""`, "listen"},
+		{"listen without a port", "listen: localhost", "listen"},
+		{"tls without a key", "tls: {cert_file: c.pem}", "cert_file and key_file"},
+		{"tls without a certificate", "tls: {key_file: k.pem}", "cert_file and key_file"},
+		{"plain text on every interface", "listen: 0.0.0.0:7600", "allow_plaintext"},
+		{"plain text on any port", `listen: ":7600"`, "allow_plaintext"},
+		{"plain text on a named host", "listen: governor.internal:7600", "allow_plaintext"},
 		{"zero reap interval", "reap_interval: 0s", "reap_interval"},
 		{"negative root limit", "root: {limits: {db: -1}}", "root"},
 		{"unnamed tenant", "tenants: [{api_key: k}]", "name is empty"},
@@ -125,6 +140,26 @@ func TestParseRejects(t *testing.T) {
 			_, err := Parse([]byte(tc.yaml))
 			if err == nil || !strings.Contains(err.Error(), tc.want) {
 				t.Errorf("Parse = %v, want an error mentioning %q", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestParseListen(t *testing.T) {
+	tests := []struct {
+		name string
+		yaml string
+	}{
+		{"loopback", "listen: 127.0.0.1:7600"},
+		{"loopback over IPv6", `listen: "[::1]:7600"`},
+		{"localhost", "listen: localhost:7600"},
+		{"public with tls", "listen: 0.0.0.0:7600\ntls: {cert_file: c.pem, key_file: k.pem}"},
+		{"public with plain text allowed", "listen: 0.0.0.0:7600\nallow_plaintext: true"},
+	}
+	for _, tc := range tests {
+		t.Run(tc.name, func(t *testing.T) {
+			if _, err := Parse([]byte(tc.yaml)); err != nil {
+				t.Errorf("Parse: %v", err)
 			}
 		})
 	}

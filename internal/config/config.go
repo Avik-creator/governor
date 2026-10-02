@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"net"
 	"os"
 	"slices"
 	"time"
@@ -32,6 +33,12 @@ const (
 type Config struct {
 	// Listen is the address the gRPC server binds to.
 	Listen string `yaml:"listen"`
+
+	// TLS is the certificate the gRPC server presents; nil serves plain text.
+	TLS *TLS `yaml:"tls"`
+
+	// AllowPlaintext lets governord serve plain text on an address that is not loopback.
+	AllowPlaintext bool `yaml:"allow_plaintext"`
 
 	// MetricsListen is the address Prometheus metrics are served on over HTTP; empty serves none.
 	MetricsListen string `yaml:"metrics_listen"`
@@ -62,6 +69,15 @@ type Config struct {
 
 	// Adaptive lists the root limits that are tuned from what their leases report.
 	Adaptive []Adaptive `yaml:"adaptive"`
+}
+
+// TLS names the certificate and private key of the gRPC server, both PEM files.
+type TLS struct {
+	// CertFile holds the certificate, followed by any intermediates.
+	CertFile string `yaml:"cert_file"`
+
+	// KeyFile holds the private key of the certificate.
+	KeyFile string `yaml:"key_file"`
 }
 
 // Adaptive describes the controller of one class's limit on the root.
@@ -193,6 +209,17 @@ func (c *Config) validate() error {
 	if c.Listen == "" {
 		return errors.New("listen is empty")
 	}
+	local, err := loopback(c.Listen)
+	if err != nil {
+		return fmt.Errorf("listen: %w", err)
+	}
+	if c.TLS != nil && (c.TLS.CertFile == "" || c.TLS.KeyFile == "") {
+		return errors.New("tls: cert_file and key_file must both be set")
+	}
+	// Keys and tokens travel with every call, so plain text off this machine has to be asked for.
+	if c.TLS == nil && !local && !c.AllowPlaintext {
+		return fmt.Errorf("listen: %s is not a loopback address, so set tls or allow_plaintext", c.Listen)
+	}
 	if c.ReapInterval <= 0 || c.DrainTimeout <= 0 || c.NodeRetention <= 0 {
 		return errors.New("reap_interval, drain_timeout and node_retention must be positive")
 	}
@@ -255,6 +282,20 @@ func (c *Config) validate() error {
 		}
 	}
 	return nil
+}
+
+// loopback reports whether the listen address can only be reached from this machine.
+func loopback(addr string) (bool, error) {
+	host, _, err := net.SplitHostPort(addr)
+	if err != nil {
+		return false, err
+	}
+	if host == "localhost" {
+		return true, nil
+	}
+	// An empty host means every interface, and a name could resolve to anything.
+	ip := net.ParseIP(host)
+	return ip != nil && ip.IsLoopback(), nil
 }
 
 func (c Caps) validate() error {
