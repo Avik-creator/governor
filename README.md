@@ -176,7 +176,8 @@ export GOVERNOR_DATABASE_URL='postgres://postgres:governor@localhost:5432/govern
 go get github.com/Avik-creator/governor
 ```
 
-The client reads `GOVERNOR_ADDR` (default `127.0.0.1:7600`) and `GOVERNOR_API_KEY`.
+The client reads `GOVERNOR_ADDR` (default `127.0.0.1:7600`) and `GOVERNOR_API_KEY`,
+and `GOVERNOR_TLS` or `GOVERNOR_CA_FILE` if governord [serves TLS](#encrypting-the-connection).
 A program connects once and creates a task; from then on the `context.Context`
 carries the task, so library code needs no handle.
 
@@ -360,6 +361,54 @@ tenant's key can change everything under the tenant but not the tenant's own cap
 the admin key can change those too. Defaults set here take the place of the ones
 in `governor.yaml`, which only seed a tenant that has none on record.
 
+## Encrypting the connection
+
+Every call carries an API key or a session token, so on anything but loopback the
+connection should be encrypted. `governord` serves TLS when its configuration names
+a certificate and its key:
+
+```yaml
+listen: 0.0.0.0:7600
+tls:
+  cert_file: /etc/governor/server.crt
+  key_file: /etc/governor/server.key
+```
+
+| `listen` | `tls` | Result |
+| --- | --- | --- |
+| Loopback (`127.0.0.1`, `::1`, `localhost`) | Not set | Plain text, as in the quick start |
+| Any address | Set | TLS 1.3 only; a plain-text client is refused before it can send its key |
+| Not loopback | Not set | `governord` refuses to start, unless `allow_plaintext: true` is set |
+
+Clients are told through the environment, next to `GOVERNOR_ADDR`:
+
+| Variable | Meaning |
+| --- | --- |
+| `GOVERNOR_TLS=1` | Use TLS and check the server against the system's trusted roots |
+| `GOVERNOR_CA_FILE=/path/ca.crt` | Use TLS and trust only the certificates in this PEM file |
+
+With neither set a client speaks plain text. The SDK, `governor hook` and
+`governor ui` all read both; a program can pass `governor.WithTLS` instead.
+`governor ui -config` reads the certificate from governord's own file. A hook whose
+settings cannot be read refuses the tool, as it does when `governord` is unreachable.
+
+For a private network, a self-signed certificate is enough. Its names must include
+the address the clients connect to:
+
+```sh
+openssl req -x509 -newkey ec -pkeyopt ec_paramgen_curve:prime256v1 -nodes -days 365 \
+  -keyout server.key -out server.crt -subj "/CN=governord" \
+  -addext "subjectAltName=DNS:governor.internal,IP:10.0.0.5"
+
+export GOVERNOR_ADDR=governor.internal:7600
+export GOVERNOR_CA_FILE=$PWD/server.crt
+```
+
+The server proves who it is with the certificate; a client still proves who it is
+with its API key, so there are no client certificates. The certificate is read
+once, at start, so replacing it needs a restart. The metrics endpoint is separate
+and stays plain HTTP.
+
 ## Metrics
 
 With `metrics_listen` set, `governord` serves Prometheus metrics over HTTP. The
@@ -528,7 +577,7 @@ They are checked from scratch after every step of randomized operation sequences
 restart path and compared field by field with the live engine.
 
 SPEC.md §12 lists what is not guaranteed, including that there is one `governord`
-with no replication, and that traffic is not encrypted.
+with no replication, and that API keys are kept in the clear in its configuration file.
 
 ## Design decisions
 
@@ -641,6 +690,7 @@ the shape it would take. It is not built.
 | `internal/adaptive` | The controller that tunes a limit from reported latency and overload |
 | `internal/store` | Postgres or SQLite: events with group commit, snapshots, session token hashes (goose, goqu) |
 | `internal/config` | The YAML configuration |
+| `internal/transport` | How the connection is secured: TLS credentials for governord and its clients |
 | `examples/load` | A small workload that uses the SDK, for trying things out |
 | `monitoring` | Prometheus and Grafana for one `governord`, with a dashboard |
 | `proto/governor/v1` | The gRPC contract; generated code is in `internal/gen` |
@@ -671,18 +721,18 @@ Measured on an Apple M1 with `go test -bench . ./internal/core`:
 
 Built and tested: the engine, the gRPC service, the Postgres and SQLite store with
 snapshots and restart, `governord` with adaptive concurrency and Prometheus metrics,
-the SDK, the hook for Claude Code and Codex, the terminal screen, and the benchmark.
+TLS between clients and `governord`, the SDK, the hook for Claude Code and Codex,
+the terminal screen, and the benchmark.
 
 Known limits:
 
 - one `governord` is the authority; there is no replication;
-- traffic is not encrypted, and API keys are kept in the configuration file;
+- API keys are kept in the clear in the configuration file, and a new certificate needs a restart;
 - there are metrics and logs, but no traces;
 - hooks budget tool calls and subagents, but cannot limit how many run at once;
 - request ids sent directly with an API key, as hooks do, are not kept across a restart.
 
-What would come next, in this order: TLS, so that one `governord` can be run
-across a network; then replication through a consensus log, tested with a
+What would come next: replication through a consensus log, tested with a
 linearizability checker under injected faults. Governor is meant to stay a
 resource governor for fan-out workloads; the agent CLI hook is one use of it, not
 its direction.

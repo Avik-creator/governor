@@ -343,10 +343,10 @@ If any step is refused, the hook exits 2 and prints the reason for the model.
   performed stays charged, so a budget may be under-used but never exceeded.
 - **One `governord` is the authority.** There is no replication. Availability comes
   from fast restart and durable state, not from consensus.
-- **Isolation is only as strong as the keys.** Traffic is not encrypted and API
-  keys sit in the configuration file. A process that can read another tenant's
-  key or token can act as that tenant; keeping them apart is the operating
-  system's job.
+- **Isolation is only as strong as the keys.** Traffic is encrypted only when
+  `governord` is given a certificate, and API keys sit in the configuration
+  file. A process that can read another tenant's key or token can act as that
+  tenant; keeping them apart is the operating system's job.
 - **Hooks see tool calls only.** Model calls and tokens are not gated, a shell
   command that makes many requests counts as one tool call, and a tool that is
   already running cannot be interrupted. Codex does not run hooks for its hosted

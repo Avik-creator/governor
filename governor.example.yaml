@@ -4,6 +4,16 @@
 
 listen: 127.0.0.1:7600
 
+# To serve other machines, listen on an address they can reach and name a
+# certificate and its key, both PEM files; governord then accepts TLS only.
+# Without them it refuses to listen anywhere but loopback, because every call
+# carries a key or a token. "allow_plaintext: true" lifts that refusal, for a
+# network that is already private.
+# listen: 0.0.0.0:7600
+# tls:
+#   cert_file: /etc/governor/server.crt
+#   key_file: /etc/governor/server.key
+
 # Where Prometheus metrics are served over HTTP, at /metrics. Leave empty to
 # serve none. Anyone who can reach this address can read the tenants' names and
 # usage, so keep it on a private interface.
