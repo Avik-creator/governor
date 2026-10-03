@@ -1,0 +1,291 @@
+syntax = "proto3";
+
+package governor.v1;
+
+import "google/protobuf/duration.proto";
+import "google/protobuf/timestamp.proto";
+
+option go_package = "github.com/Avik-creator/governor/internal/gen/governor/v1;governorv1";
+
+// GovernorService is the API of governord; SPEC.md defines its semantics.
+// Calls carry "authorization: Bearer <secret>" metadata: a session token, or an API key where allowed.
+service GovernorService {
+  // CreateNode adds a child node under a parent.
+  rpc CreateNode(CreateNodeRequest) returns (CreateNodeResponse);
+  // EnsureNode returns the parent's newest child with the spec's name, creating it if there is none.
+  rpc EnsureNode(EnsureNodeRequest) returns (EnsureNodeResponse);
+  // Consume charges a quota to a node and its whole chain, or to nothing.
+  rpc Consume(ConsumeRequest) returns (ConsumeResponse);
+  // CancelNode ends a node and its subtree as cancelled.
+  rpc CancelNode(CancelNodeRequest) returns (CancelNodeResponse);
+  // CloseNode ends a node as done and cancels its active descendants.
+  rpc CloseNode(CloseNodeRequest) returns (CloseNodeResponse);
+  // WatchNode sends one message when the node ends, then closes the stream.
+  rpc WatchNode(WatchNodeRequest) returns (stream WatchNodeResponse);
+
+  // GetNode describes a node and its children.
+  rpc GetNode(GetNodeRequest) returns (GetNodeResponse);
+  // SetQuota changes or removes a node's cap for a resource.
+  rpc SetQuota(SetQuotaRequest) returns (SetQuotaResponse);
+  // SetLimit changes or removes a node's cap for a class.
+  rpc SetLimit(SetLimitRequest) returns (SetLimitResponse);
+  // SetDefaults changes what each new child of a node starts with.
+  rpc SetDefaults(SetDefaultsRequest) returns (SetDefaultsResponse);
+
+  // OpenSession trades an API key for a session confined to the key's node.
+  rpc OpenSession(OpenSessionRequest) returns (OpenSessionResponse);
+  // Heartbeat renews a session and every lease it holds.
+  rpc Heartbeat(HeartbeatRequest) returns (HeartbeatResponse);
+  // CloseSession ends a session and releases every lease it holds.
+  rpc CloseSession(CloseSessionRequest) returns (CloseSessionResponse);
+
+  // Acquire grants a lease, blocking while the node's chain is full.
+  rpc Acquire(AcquireRequest) returns (AcquireResponse);
+  // Release returns a lease and reports how the guarded work went.
+  rpc Release(ReleaseRequest) returns (ReleaseResponse);
+  // Validate reports whether a lease is still held, as a fencing check.
+  rpc Validate(ValidateRequest) returns (ValidateResponse);
+}
+
+// State is the lifecycle state of a node.
+enum State {
+  STATE_UNSPECIFIED = 0;
+  STATE_ACTIVE = 1;
+  STATE_DONE = 2;
+  STATE_CANCELLED = 3;
+  STATE_DEADLINE_EXCEEDED = 4;
+}
+
+// Reason says which engine error a failed call ran into.
+enum Reason {
+  REASON_UNSPECIFIED = 0;
+  REASON_INVALID = 1;
+  REASON_UNKNOWN_NODE = 2;
+  REASON_SESSION_EXPIRED = 3;
+  REASON_UNKNOWN_LEASE = 4;
+  REASON_LEASE_EXPIRED = 5;
+  REASON_LEASE_REVOKED = 6;
+  REASON_NOT_OWNER = 7;
+  REASON_DENIED = 8;
+  REASON_CLOSED = 9;
+  REASON_FORBIDDEN = 10;
+  REASON_BAD_API_KEY = 11;
+}
+
+// Spec describes a node to create; an empty Spec has no limits of its own.
+message Spec {
+  // name is a label for denials and snapshots; it need not be unique.
+  string name = 1;
+  // quotas caps total consumption per resource; absent means uncapped here.
+  map<string, int64> quotas = 2;
+  // limits caps leases held at once per class; absent means uncapped here.
+  map<string, int64> limits = 3;
+  // deadline is when the node ends; unset means none of its own.
+  google.protobuf.Timestamp deadline = 4;
+  // weight is a tenant's share when competing for a class; zero means 1.
+  int64 weight = 5;
+  // priority orders queued acquires within a tenant; higher goes first.
+  int64 priority = 6;
+}
+
+// Defaults is what a node gives each new child, whatever the child's own spec asks for.
+message Defaults {
+  // quotas replace the child's caps for the resources named here.
+  map<string, int64> quotas = 1;
+  // children become the child's own defaults, for the nodes created under it.
+  Defaults children = 2;
+}
+
+// Node describes one node of the tree.
+message Node {
+  uint64 id = 1;
+  // parent_id is zero for the root.
+  uint64 parent_id = 2;
+  string name = 3;
+  State state = 4;
+  // deadline is the effective deadline; unset means none.
+  google.protobuf.Timestamp deadline = 5;
+  // ended_at is unset while the node is active.
+  google.protobuf.Timestamp ended_at = 6;
+  // quotas and limits are the node's own caps; used and held count its whole subtree.
+  map<string, int64> quotas = 7;
+  map<string, int64> used = 8;
+  map<string, int64> limits = 9;
+  map<string, int64> held = 10;
+  // defaults is what each new child starts with; unset means nothing.
+  Defaults defaults = 11;
+  // child_count is how many children the node has.
+  int64 child_count = 12;
+}
+
+// ErrorDetail is attached to the status of every failed call.
+message ErrorDetail {
+  Reason reason = 1;
+  // denial is set when reason is REASON_DENIED.
+  Denial denial = 2;
+}
+
+// Denial explains which cap a consume ran into.
+message Denial {
+  // node_id and name identify the node whose cap was hit.
+  uint64 node_id = 1;
+  string name = 2;
+  string resource = 3;
+  int64 used = 4;
+  int64 limit = 5;
+  int64 requested = 6;
+  // top_consumer_* describe the child that has used the most, if any.
+  uint64 top_consumer_id = 7;
+  string top_consumer_name = 8;
+  int64 top_consumer_used = 9;
+}
+
+message CreateNodeRequest {
+  // request_id makes a retry return the node created the first time.
+  string request_id = 1;
+  uint64 parent_id = 2;
+  Spec spec = 3;
+}
+
+message CreateNodeResponse {
+  uint64 node_id = 1;
+}
+
+message EnsureNodeRequest {
+  // parent_id of zero means the node the caller is confined to.
+  uint64 parent_id = 1;
+  // spec must carry a name; it is only used if the node has to be created.
+  Spec spec = 2;
+  // charge_resource and charge_amount are charged to the parent if the node is created.
+  string charge_resource = 3;
+  int64 charge_amount = 4;
+}
+
+message EnsureNodeResponse {
+  uint64 node_id = 1;
+  // created is false when the node already existed, even if it has ended.
+  bool created = 2;
+}
+
+message ConsumeRequest {
+  // request_id makes a retry charge nothing a second time.
+  string request_id = 1;
+  uint64 node_id = 2;
+  string resource = 3;
+  int64 amount = 4;
+}
+
+message ConsumeResponse {}
+
+message CancelNodeRequest {
+  uint64 node_id = 1;
+}
+
+message CancelNodeResponse {}
+
+message CloseNodeRequest {
+  uint64 node_id = 1;
+}
+
+message CloseNodeResponse {}
+
+message WatchNodeRequest {
+  uint64 node_id = 1;
+}
+
+message WatchNodeResponse {
+  // state is the terminal state the node ended in.
+  State state = 1;
+}
+
+message GetNodeRequest {
+  // node_id of zero means the node the caller is confined to.
+  uint64 node_id = 1;
+}
+
+message GetNodeResponse {
+  Node node = 1;
+  // children are ordered by id.
+  repeated Node children = 2;
+}
+
+message SetQuotaRequest {
+  uint64 node_id = 1;
+  string resource = 2;
+  // limit is the new cap; leaving it unset removes the cap.
+  optional int64 limit = 3;
+}
+
+message SetQuotaResponse {}
+
+message SetLimitRequest {
+  uint64 node_id = 1;
+  string class = 2;
+  // limit is the new cap; leaving it unset removes the cap.
+  optional int64 limit = 3;
+}
+
+message SetLimitResponse {}
+
+message SetDefaultsRequest {
+  // node_id of zero means the node the caller is confined to.
+  uint64 node_id = 1;
+  // defaults replaces the node's defaults; leaving it unset clears them.
+  Defaults defaults = 2;
+}
+
+message SetDefaultsResponse {}
+
+message OpenSessionRequest {
+  // ttl is how long the session lives without a heartbeat; zero means forever.
+  google.protobuf.Duration ttl = 1;
+}
+
+message OpenSessionResponse {
+  // session_token is the secret to send as the bearer on every later call.
+  string session_token = 1;
+  // scope_id is the node the session is confined to, with its whole subtree.
+  uint64 scope_id = 2;
+  // expires_at is unset for a session that never expires.
+  google.protobuf.Timestamp expires_at = 3;
+}
+
+message HeartbeatRequest {}
+
+message HeartbeatResponse {
+  google.protobuf.Timestamp expires_at = 1;
+}
+
+message CloseSessionRequest {}
+
+message CloseSessionResponse {}
+
+message AcquireRequest {
+  // request_id makes a retry return the lease granted the first time.
+  string request_id = 1;
+  uint64 node_id = 2;
+  string class = 3;
+  // max_hold expires the lease after this long; unset means no maximum.
+  google.protobuf.Duration max_hold = 4;
+}
+
+message AcquireResponse {
+  // lease_id is also the fencing token: a larger id is a later grant.
+  uint64 lease_id = 1;
+}
+
+message ReleaseRequest {
+  uint64 lease_id = 1;
+  // latency is how long the guarded operation took; unset means not measured.
+  google.protobuf.Duration latency = 2;
+  // overloaded reports that the downstream signalled overload.
+  bool overloaded = 3;
+}
+
+message ReleaseResponse {}
+
+message ValidateRequest {
+  uint64 lease_id = 1;
+}
+
+message ValidateResponse {}

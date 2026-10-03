@@ -1,0 +1,16 @@
+{
+  "name": "governor-checkout-demo",
+  "private": true,
+  "description": "A checkout service and a batch job sharing a database and a payment gateway, with and without Governor.",
+  "type": "module",
+  "engines": {
+    "node": ">=18"
+  },
+  "scripts": {
+    "demo": "node demo.js"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.5",
+    "@grpc/proto-loader": "^0.8.1"
+  }
+}

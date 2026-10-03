@@ -692,6 +692,7 @@ the shape it would take. It is not built.
 | `internal/config` | The YAML configuration |
 | `internal/transport` | How the connection is secured: TLS credentials for governord and its clients |
 | `examples/load` | A small workload that uses the SDK, for trying things out |
+| `examples/checkout` | A Node.js demo: a checkout service and a batch job sharing a database and a gateway, with and without Governor |
 | `monitoring` | Prometheus and Grafana for one `governord`, with a dashboard |
 | `proto/governor/v1` | The gRPC contract; generated code is in `internal/gen` |
 

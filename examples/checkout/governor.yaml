@@ -1,0 +1,46 @@
+# governord configuration for the checkout demo. It listens on loopback and
+# keeps everything in memory, so it needs no certificate and no database.
+# To serve other machines, add a tls block as in governor.example.yaml.
+
+listen: 127.0.0.1:7600
+
+# Small pools, so that contention shows within seconds.
+root:
+  limits:
+    db: 10   # connections to the shared Postgres
+    psp: 8   # calls in flight to the payment gateway
+
+# The gateway's limit follows its health: cut to 70% when it is slow or
+# answers 429, raised by one while it is healthy.
+adaptive:
+  - class: psp
+    target_p95: 200ms
+    max_overload: 0.02
+    min_limit: 1
+    max_limit: 8
+    interval: 500ms
+    min_samples: 10
+
+# One tenant per service. Weights decide who is served first when a pool is
+# full; limits keep one service from taking a whole pool.
+tenants:
+  - name: payments
+    api_key: ${PAYMENTS_KEY}
+    weight: 4
+    # Every checkout task starts with this retry budget.
+    defaults:
+      quotas:
+        retry: 3
+
+  - name: orders
+    api_key: ${ORDERS_KEY}
+    weight: 3
+    limits:
+      db: 5
+
+  - name: reconciliation
+    api_key: ${RECON_KEY}
+    weight: 1
+    limits:
+      db: 3
+      psp: 2
