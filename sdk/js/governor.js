@@ -1,9 +1,10 @@
-// A small client for governord's gRPC API: sessions, tasks, quotas and leases.
+// A client for governord's gRPC API: sessions, tasks, quotas and leases.
+import { readFileSync } from 'node:fs';
 import { fileURLToPath } from 'node:url';
 import grpc from '@grpc/grpc-js';
 import protoLoader from '@grpc/proto-loader';
 
-// A copy of proto/governor/v1/governor.proto, so the folder works without the repository.
+// A copy of proto/governor/v1/governor.proto, shipped in the package; CI keeps the two identical.
 const PROTO = fileURLToPath(new URL('./governor.proto', import.meta.url));
 
 // Node and lease ids are uint64, so they travel as strings to keep every digit.
@@ -38,9 +39,38 @@ function call(client, method, request, secret) {
   });
 }
 
+// parseBool reads a boolean the way Go's strconv.ParseBool does, so both clients accept the same values.
+function parseBool(name, raw) {
+  if (['1', 't', 'T', 'TRUE', 'true', 'True'].includes(raw)) {
+    return true;
+  }
+  if (['0', 'f', 'F', 'FALSE', 'false', 'False'].includes(raw)) {
+    return false;
+  }
+  // A value that cannot be read must not quietly mean plain text.
+  throw new Error(`${name}: "${raw}" is neither true nor false`);
+}
+
+// credentials chooses how to reach governord, as the Go client does: TLS when asked for, plain text otherwise.
+function credentials(tls, caFile) {
+  if (tls === false && caFile) {
+    throw new Error('TLS is turned off, but a CA file is set');
+  }
+  if (caFile) {
+    return grpc.credentials.createSsl(readFileSync(caFile));
+  }
+  return tls ? grpc.credentials.createSsl() : grpc.credentials.createInsecure();
+}
+
 // connect trades a tenant's API key for a session that is kept alive until close.
-export async function connect({ apiKey, addr = process.env.GOVERNOR_ADDR || '127.0.0.1:7600', ttlMs = 10_000 }) {
-  const client = new GovernorService(addr, grpc.credentials.createInsecure());
+export async function connect({
+  apiKey,
+  addr = process.env.GOVERNOR_ADDR || '127.0.0.1:7600',
+  tls = process.env.GOVERNOR_TLS ? parseBool('GOVERNOR_TLS', process.env.GOVERNOR_TLS) : undefined,
+  caFile = process.env.GOVERNOR_CA_FILE,
+  ttlMs = 10_000,
+}) {
+  const client = new GovernorService(addr, credentials(tls, caFile));
   try {
     const opened = await call(client, 'OpenSession', { ttl: duration(ttlMs) }, apiKey);
     return new Session(client, opened.sessionToken, opened.scopeId, ttlMs);

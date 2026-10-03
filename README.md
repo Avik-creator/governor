@@ -229,6 +229,16 @@ The SDK fails closed. If `governord` cannot be reached, work is refused. If a
 heartbeat has not succeeded within 80% of the session's TTL, every context from
 that client is cancelled, so a paused worker cannot carry on with leases it has lost.
 
+### From Node.js
+
+```sh
+npm install @avik-creator/governor
+```
+
+The Node.js client offers sessions, tasks, quotas and leases, and reads the same
+environment variables. [`sdk/js`](sdk/js) is its guide, and `examples/checkout`
+uses it.
+
 ## Governing Claude Code and Codex
 
 `governor hook` caps what an agent CLI run may do: how many tool calls it makes,
@@ -677,6 +687,7 @@ the shape it would take. It is not built.
 | Path | Contents |
 | --- | --- |
 | `*.go` (root) | The Go SDK, package `governor` |
+| `sdk/js` | The Node.js client, published as `@avik-creator/governor` |
 | `cmd/governord` | The daemon: restore, reconcile tenants, serve |
 | `cmd/governor` | The command-line client: `governor hook` and `governor ui` |
 | `cmd/govbench` | The benchmark |

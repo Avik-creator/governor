@@ -1,0 +1,21 @@
+{
+  "name": "@avik-creator/governor",
+  "version": "0.1.0",
+  "description": "Node.js client for governord: sessions, tasks, quotas and leases.",
+  "license": "MIT",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Avik-creator/governor.git",
+    "directory": "sdk/js"
+  },
+  "type": "module",
+  "exports": "./governor.js",
+  "files": ["governor.js", "governor.proto"],
+  "engines": {
+    "node": ">=18"
+  },
+  "dependencies": {
+    "@grpc/grpc-js": "^1.14.5",
+    "@grpc/proto-loader": "^0.8.1"
+  }
+}

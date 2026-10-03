@@ -1,7 +1,7 @@
 // Runs a checkout service and a reconciliation job against one database and one payment gateway, without Governor and then with it.
 import http from 'node:http';
 import { setTimeout as sleep } from 'node:timers/promises';
-import { connect } from './governor.js';
+import { connect } from '@avik-creator/governor';
 
 const RUN_MS = 8_000;
 

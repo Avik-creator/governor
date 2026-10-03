@@ -65,5 +65,5 @@ jobs:
           go-version: stable
       - run: go generate ./internal/gen
       - run: git diff --exit-code
-      # The checkout example carries its own copy of the API, which must match.
-      - run: cmp proto/governor/v1/governor.proto examples/checkout/governor.proto
+      # The Node.js client ships its own copy of the API, which must match.
+      - run: cmp proto/governor/v1/governor.proto sdk/js/governor.proto

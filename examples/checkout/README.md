@@ -5,8 +5,9 @@ payment gateway. The job is heavy: it takes most of the database connections and
 floods the gateway, so checkouts slow down and fail. This demo runs both for
 8 seconds without Governor, then 8 seconds with it, and prints what each side saw.
 
-It is written in JavaScript to show that `governord` is not tied to Go: any
-language with gRPC can use it. `governor.js` is a small client of about 130 lines.
+It is written in JavaScript, with the Node.js client
+[`@avik-creator/governor`](../../sdk/js), to show that `governord` is not tied
+to Go: any language with gRPC can use it.
 
 ## What it shows
 
@@ -60,8 +61,7 @@ PAYMENTS_KEY=pay-demo RECON_KEY=rec-demo npm run demo
 `governord` listens on `127.0.0.1:7600`. If that port is taken, change `listen`
 in `governor.yaml` and set `GOVERNOR_ADDR` to the same address for the demo.
 
-This folder works on its own: `governor.proto` is a copy of the API's definition,
-which CI keeps identical to `proto/governor/v1/governor.proto`.
+The folder needs nothing else from this repository: the client comes from npm.
 
 ## How it maps onto Governor
 
@@ -123,5 +123,5 @@ lease at once, so the only difference between the two columns is Governor.
   Give a long-running service `limits` only, and put quotas on its tasks through
   `defaults`, as `payments` does with `retry`.
 - **Across machines,** `governord` needs a certificate. See "Encrypting the
-  connection" in the main README; this client would then use
-  `grpc.credentials.createSsl` instead of `createInsecure`.
+  connection" in the main README; the demo then needs `GOVERNOR_CA_FILE` or
+  `GOVERNOR_TLS=1`, as every client does.
